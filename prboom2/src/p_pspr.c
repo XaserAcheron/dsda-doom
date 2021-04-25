@@ -744,7 +744,7 @@ void A_Punch(player_t *player, pspdef_t *psp)
        !linetarget))
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE, 0);
 
-  P_LineAttack(player->mo, angle, MELEERANGE, slope, damage);
+  P_LineAttack(player->mo, angle, MELEERANGE, slope, damage, MT_PUFF);
 
   if (!linetarget)
     return;
@@ -783,7 +783,7 @@ void A_Saw(player_t *player, pspdef_t *psp)
        !linetarget))
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE+1, 0);
 
-  P_LineAttack(player->mo, angle, MELEERANGE+1, slope, damage);
+  P_LineAttack(player->mo, angle, MELEERANGE+1, slope, damage, MT_PUFF);
 
   if (!linetarget)
     {
@@ -966,7 +966,7 @@ static void P_GunShot(mobj_t *mo, dboolean accurate)
       angle += (t - P_Random(pr_misfire))<<18;
     }
 
-  P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage);
+  P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage, MT_PUFF);
 }
 
 //
@@ -1037,7 +1037,7 @@ void A_FireShotgun2(player_t *player, pspdef_t *psp)
       angle += (t - P_Random(pr_shotgun))<<19;
       t = P_Random(pr_shotgun);
       P_LineAttack(player->mo, angle, MISSILERANGE, bulletslope +
-                   ((t - P_Random(pr_shotgun))<<5), damage);
+                   ((t - P_Random(pr_shotgun))<<5), damage, MT_PUFF);
     }
 }
 
@@ -1171,10 +1171,11 @@ void A_WeaponProjectile(player_t *player, pspdef_t *psp)
 //   args[2]: Number of bullets to fire; if not set, defaults to 1
 //   args[3]: Base damage of attack (e.g. for 5d3, customize the 5); if not set, defaults to 5
 //   args[4]: Attack damage modulus (e.g. for 5d3, customize the 3); if not set, defaults to 3
+//   args[5]: Puff actor type; if not set, defaults to MT_PUFF
 //
 void A_WeaponBulletAttack(player_t *player, pspdef_t *psp)
 {
-  int hspread, vspread, numbullets, damagebase, damagemod;
+  int hspread, vspread, numbullets, damagebase, damagemod, pufftype;
   int i, damage, angle, slope;
 
   CHECK_WEAPON_CODEPOINTER("A_WeaponBulletAttack", player);
@@ -1187,6 +1188,10 @@ void A_WeaponBulletAttack(player_t *player, pspdef_t *psp)
   numbullets = ARG_DEFAULT(psp->state->args[2], 1);
   damagebase = ARG_DEFAULT(psp->state->args[3], 5);
   damagemod  = ARG_DEFAULT(psp->state->args[4], 3);
+  pufftype   = ARG_DEFAULT(psp->state->args[5], 0) - 1;
+
+  if (pufftype < 0 || pufftype >= NUMMOBJTYPES)
+    pufftype = MT_PUFF;
 
   P_BulletSlope(player->mo);
 
@@ -1196,7 +1201,7 @@ void A_WeaponBulletAttack(player_t *player, pspdef_t *psp)
     angle = (int)player->mo->angle + P_RandomHitscanAngle(pr_mbf21, hspread);
     slope = bulletslope + P_RandomHitscanSlope(pr_mbf21, vspread);
 
-    P_LineAttack(player->mo, angle, MISSILERANGE, slope, damage);
+    P_LineAttack(player->mo, angle, MISSILERANGE, slope, damage, pufftype);
   }
 }
 
@@ -1426,8 +1431,6 @@ void A_BeakRaise(player_t * player, pspdef_t * psp)
                  wpnlev1info[player->readyweapon].readystate);
 }
 
-extern mobjtype_t PuffType;
-
 void A_BeakAttackPL1(player_t * player, pspdef_t * psp)
 {
     angle_t angle;
@@ -1437,8 +1440,7 @@ void A_BeakAttackPL1(player_t * player, pspdef_t * psp)
     damage = 1 + (P_Random(pr_heretic) & 3);
     angle = player->mo->angle;
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE, 0);
-    PuffType = HERETIC_MT_BEAKPUFF;
-    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage);
+    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage, HERETIC_MT_BEAKPUFF);
     if (linetarget)
     {
         player->mo->angle = R_PointToAngle2(player->mo->x,
@@ -1459,8 +1461,7 @@ void A_BeakAttackPL2(player_t * player, pspdef_t * psp)
     damage = HITDICE(4);
     angle = player->mo->angle;
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE, 0);
-    PuffType = HERETIC_MT_BEAKPUFF;
-    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage);
+    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage, HERETIC_MT_BEAKPUFF);
     if (linetarget)
     {
         player->mo->angle = R_PointToAngle2(player->mo->x,
@@ -1482,8 +1483,7 @@ void A_StaffAttackPL1(player_t * player, pspdef_t * psp)
     angle = player->mo->angle;
     angle += P_SubRandom() << 18;
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE, 0);
-    PuffType = HERETIC_MT_STAFFPUFF;
-    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage);
+    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage, HERETIC_MT_STAFFPUFF);
     if (linetarget)
     {
         //S_StartSound(player->mo, sfx_stfhit);
@@ -1506,8 +1506,7 @@ void A_StaffAttackPL2(player_t * player, pspdef_t * psp)
     angle = player->mo->angle;
     angle += P_SubRandom() << 18;
     slope = P_AimLineAttack(player->mo, angle, MELEERANGE, 0);
-    PuffType = HERETIC_MT_STAFFPUFF2;
-    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage);
+    P_LineAttack(player->mo, angle, MELEERANGE, slope, damage, HERETIC_MT_STAFFPUFF2);
     if (linetarget)
     {
         //S_StartSound(player->mo, sfx_stfpow);
@@ -1535,8 +1534,7 @@ void A_FireBlasterPL1(player_t * player, pspdef_t * psp)
     {
         angle += P_SubRandom() << 18;
     }
-    PuffType = HERETIC_MT_BLASTERPUFF1;
-    P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage);
+    P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage, HERETIC_MT_BLASTERPUFF1);
     S_StartSound(player->mo, heretic_sfx_blssht);
 }
 
@@ -1569,8 +1567,7 @@ void A_FireGoldWandPL1(player_t * player, pspdef_t * psp)
     {
         angle += P_SubRandom() << 18;
     }
-    PuffType = HERETIC_MT_GOLDWANDPUFF1;
-    P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage);
+    P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage, HERETIC_MT_GOLDWANDPUFF1);
     S_StartSound(player->mo, heretic_sfx_gldhit);
 }
 
@@ -1585,7 +1582,6 @@ void A_FireGoldWandPL2(player_t * player, pspdef_t * psp)
     mo = player->mo;
     player->ammo[am_goldwand] -=
         deathmatch ? USE_GWND_AMMO_1 : USE_GWND_AMMO_2;
-    PuffType = HERETIC_MT_GOLDWANDPUFF2;
     P_BulletSlope(mo);
     momz = FixedMul(mobjinfo[HERETIC_MT_GOLDWANDFX2].speed, bulletslope);
     P_SpawnMissileAngle(mo, HERETIC_MT_GOLDWANDFX2, mo->angle - (ANG45 / 8), momz);
@@ -1594,7 +1590,7 @@ void A_FireGoldWandPL2(player_t * player, pspdef_t * psp)
     for (i = 0; i < 5; i++)
     {
         damage = 1 + (P_Random(pr_heretic) & 7);
-        P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage);
+        P_LineAttack(mo, angle, MISSILERANGE, bulletslope, damage, HERETIC_MT_GOLDWANDPUFF2);
         angle += ((ANG45 / 8) * 2) / 4;
     }
     S_StartSound(player->mo, heretic_sfx_gldhit);
@@ -2157,6 +2153,7 @@ void A_GauntletAttack(player_t * player, pspdef_t * psp)
     int damage;
     int slope;
     int randVal;
+    int pufftype;
     fixed_t dist;
 
     psp->sx = ((P_Random(pr_heretic) & 3) - 2) * FRACUNIT;
@@ -2167,17 +2164,17 @@ void A_GauntletAttack(player_t * player, pspdef_t * psp)
         damage = HITDICE(2);
         dist = 4 * MELEERANGE;
         angle += P_SubRandom() << 17;
-        PuffType = HERETIC_MT_GAUNTLETPUFF2;
+        pufftype = HERETIC_MT_GAUNTLETPUFF2;
     }
     else
     {
         damage = HITDICE(2);
         dist = MELEERANGE + 1;
         angle += P_SubRandom() << 18;
-        PuffType = HERETIC_MT_GAUNTLETPUFF1;
+        pufftype = HERETIC_MT_GAUNTLETPUFF1;
     }
     slope = P_AimLineAttack(player->mo, angle, dist, 0);
-    P_LineAttack(player->mo, angle, dist, slope, damage);
+    P_LineAttack(player->mo, angle, dist, slope, damage, pufftype);
     if (!linetarget)
     {
         if (P_Random(pr_heretic) > 64)

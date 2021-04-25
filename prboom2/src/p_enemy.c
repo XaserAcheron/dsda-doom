@@ -1365,7 +1365,7 @@ void A_PosAttack(mobj_t *actor)
   t = P_Random(pr_posattack);
   angle += (t - P_Random(pr_posattack))<<20;
   damage = (P_Random(pr_posattack)%5 + 1)*3;
-  P_LineAttack(actor, angle, MISSILERANGE, slope, damage);
+  P_LineAttack(actor, angle, MISSILERANGE, slope, damage, MT_PUFF);
 }
 
 void A_SPosAttack(mobj_t* actor)
@@ -1383,7 +1383,7 @@ void A_SPosAttack(mobj_t* actor)
       int t = P_Random(pr_sposattack);
       int angle = bangle + ((t - P_Random(pr_sposattack))<<20);
       int damage = ((P_Random(pr_sposattack)%5)+1)*3;
-      P_LineAttack(actor, angle, MISSILERANGE, slope, damage);
+      P_LineAttack(actor, angle, MISSILERANGE, slope, damage, MT_PUFF);
     }
 }
 
@@ -1402,7 +1402,7 @@ void A_CPosAttack(mobj_t *actor)
   t = P_Random(pr_cposattack);
   angle = bangle + ((t - P_Random(pr_cposattack))<<20);
   damage = ((P_Random(pr_cposattack)%5)+1)*3;
-  P_LineAttack(actor, angle, MISSILERANGE, slope, damage);
+  P_LineAttack(actor, angle, MISSILERANGE, slope, damage, MT_PUFF);
 }
 
 void A_CPosRefire(mobj_t *actor)
@@ -1482,7 +1482,7 @@ void A_SargAttack(mobj_t *actor)
   if (compatibility_level == doom_12_compatibility)
   {
     int damage = ((P_Random(pr_sargattack)%10)+1)*4;
-    P_LineAttack(actor, actor->angle, MELEERANGE, 0, damage);
+    P_LineAttack(actor, actor->angle, MELEERANGE, 0, damage, MT_PUFF);
   }
   else
   {
@@ -3046,10 +3046,11 @@ void A_MonsterProjectile(mobj_t *actor)
 //   args[2]: Number of bullets to fire; if not set, defaults to 1
 //   args[3]: Base damage of attack (e.g. for 3d5, customize the 3); if not set, defaults to 3
 //   args[4]: Attack damage modulus (e.g. for 3d5, customize the 5); if not set, defaults to 5
+//   args[5]: Puff actor type; if not set, defaults to MT_PUFF
 //
 void A_MonsterBulletAttack(mobj_t *actor)
 {
-  int hspread, vspread, numbullets, damagebase, damagemod;
+  int hspread, vspread, numbullets, damagebase, damagemod, pufftype;
   int aimslope, i, damage, angle, slope;
   int_64_t spread;
 
@@ -3061,6 +3062,10 @@ void A_MonsterBulletAttack(mobj_t *actor)
   numbullets = ARG_DEFAULT(actor->state->args[2], 1);
   damagebase = ARG_DEFAULT(actor->state->args[3], 3);
   damagemod  = ARG_DEFAULT(actor->state->args[4], 5);
+  pufftype   = ARG_DEFAULT(actor->state->args[5], 0) - 1;
+
+  if (pufftype < 0 || pufftype >= NUMMOBJTYPES)
+    pufftype = MT_PUFF;
 
   A_FaceTarget(actor);
   S_StartSound(actor, actor->info->attacksound);
@@ -3073,7 +3078,7 @@ void A_MonsterBulletAttack(mobj_t *actor)
     angle = (int)actor->angle + P_RandomHitscanAngle(pr_mbf21, hspread);
     slope = aimslope + P_RandomHitscanSlope(pr_mbf21, vspread);
 
-    P_LineAttack(actor, angle, MISSILERANGE, slope, damage);
+    P_LineAttack(actor, angle, MISSILERANGE, slope, damage, pufftype);
   }
 }
 

@@ -1609,8 +1609,9 @@ static uint_64_t aim_flags_mask;
 // Height if not aiming up or down
 fixed_t   shootz;
 
-int       la_damage;
-fixed_t   attackrange;
+int        la_damage;
+mobjtype_t la_pufftype; // [XA] new to mbf21
+fixed_t    attackrange;
 
 static fixed_t   aimslope;
 
@@ -1719,9 +1720,6 @@ dboolean PTR_AimTraverse (intercept_t* in)
 
   return false;   // don't go any farther
 }
-
-// heretic
-extern mobjtype_t PuffType;
 
 //
 // PTR_ShootTraverse
@@ -1841,7 +1839,7 @@ dboolean PTR_ShootTraverse (intercept_t* in)
 
   // Spawn bullet puffs or blod spots,
   // depending on target type.
-  if (heretic && PuffType == HERETIC_MT_BLASTERPUFF1)
+  if (heretic && la_pufftype == HERETIC_MT_BLASTERPUFF1)
   {                           // Make blaster big puff
     mobj_t* mo;
     mo = P_SpawnMobj(x, y, z, HERETIC_MT_BLASTERPUFF2);
@@ -1913,11 +1911,12 @@ fixed_t P_AimLineAttack(mobj_t* t1,angle_t angle,fixed_t distance, uint_64_t mas
 //
 
 void P_LineAttack
-(mobj_t* t1,
- angle_t angle,
- fixed_t distance,
- fixed_t slope,
- int     damage)
+(mobj_t*    t1,
+ angle_t    angle,
+ fixed_t    distance,
+ fixed_t    slope,
+ int        damage,
+ mobjtype_t pufftype)
   {
   fixed_t x2;
   fixed_t y2;
@@ -1925,6 +1924,7 @@ void P_LineAttack
   angle >>= ANGLETOFINESHIFT;
   shootthing = t1;
   la_damage = damage;
+  la_pufftype = pufftype;
   x2 = t1->x + (distance>>FRACBITS)*finecosine[angle];
   y2 = t1->y + (distance>>FRACBITS)*finesine[angle];
   shootz = t1->z + (t1->height>>1) + 8*FRACUNIT;

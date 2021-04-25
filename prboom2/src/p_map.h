@@ -64,7 +64,7 @@ dboolean P_CrossSubsector_PrBoom(int num);
 fixed_t P_AimLineAttack(mobj_t *t1,angle_t angle,fixed_t distance, uint_64_t mask);
 
 void    P_LineAttack(mobj_t *t1, angle_t angle, fixed_t distance,
-                     fixed_t slope, int damage );
+                     fixed_t slope, int damage, int pufftype);
 void    P_RadiusAttack(mobj_t *spot, mobj_t *source, int damage, int distance);
 dboolean P_CheckPosition(mobj_t *thing, fixed_t x, fixed_t y);
 

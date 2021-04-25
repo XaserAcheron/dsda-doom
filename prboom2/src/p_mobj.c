@@ -1837,6 +1837,7 @@ spawnit:
 // P_SpawnPuff
 //
 
+extern mobjtype_t la_pufftype;
 extern fixed_t attackrange;
 
 void P_SpawnPuff(fixed_t x,fixed_t y,fixed_t z)
@@ -1850,7 +1851,7 @@ void P_SpawnPuff(fixed_t x,fixed_t y,fixed_t z)
   t = P_Random(pr_spawnpuff);
   z += (t - P_Random(pr_spawnpuff))<<10;
 
-  th = P_SpawnMobj (x,y,z, MT_PUFF);
+  th = P_SpawnMobj (x,y,z, la_pufftype);
   th->momz = FRACUNIT;
   th->tics -= P_Random(pr_spawnpuff)&3;
 
@@ -2076,7 +2077,6 @@ mobj_t* P_SpawnPlayerMissile(mobj_t* source,mobjtype_t type)
 
 #include "p_spec.h"
 
-mobjtype_t PuffType;
 mobj_t *MissileMobj;
 
 void P_BlasterMobjThinker(mobj_t * mobj)
@@ -2437,12 +2437,12 @@ void Heretic_P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z)
     mobj_t *puff;
 
     z += (P_SubRandom() << 10);
-    puff = P_SpawnMobj(x, y, z, PuffType);
+    puff = P_SpawnMobj(x, y, z, la_pufftype);
     if (puff->info->attacksound)
     {
         S_StartSound(puff, puff->info->attacksound);
     }
-    switch (PuffType)
+    switch (la_pufftype)
     {
         case HERETIC_MT_BEAKPUFF:
         case HERETIC_MT_STAFFPUFF:
