@@ -427,7 +427,7 @@ mobj_t  *P_SpawnMobj(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type);
 void    P_RemoveMobj(mobj_t *th);
 dboolean P_SetMobjState(mobj_t *mobj, statenum_t state);
 void    P_MobjThinker(mobj_t *mobj);
-void    P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z);
+void    P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type);
 void    P_SpawnBlood(fixed_t x, fixed_t y, fixed_t z, int damage);
 mobj_t  *P_SpawnMissile(mobj_t *source, mobj_t *dest, mobjtype_t type);
 mobj_t  *P_SpawnPlayerMissile(mobj_t *source, mobjtype_t type);
@@ -509,6 +509,6 @@ void P_BloodSplatter(fixed_t x, fixed_t y, fixed_t z, mobj_t * originator);
 void P_RipperBlood(mobj_t * mo);
 dboolean Heretic_P_SetMobjState(mobj_t * mobj, statenum_t state);
 void P_FloorBounceMissile(mobj_t * mo);
-void Heretic_P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z);
+void Heretic_P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type);
 
 #endif

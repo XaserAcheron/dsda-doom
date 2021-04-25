@@ -1840,18 +1840,18 @@ spawnit:
 extern mobjtype_t la_pufftype;
 extern fixed_t attackrange;
 
-void P_SpawnPuff(fixed_t x,fixed_t y,fixed_t z)
+void P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type)
 {
   mobj_t* th;
   int t;
 
-  if (heretic) return Heretic_P_SpawnPuff(x, y, z);
+  if (heretic) return Heretic_P_SpawnPuff(x, y, z, type);
 
   // killough 5/5/98: remove dependence on order of evaluation:
   t = P_Random(pr_spawnpuff);
   z += (t - P_Random(pr_spawnpuff))<<10;
 
-  th = P_SpawnMobj (x,y,z, la_pufftype);
+  th = P_SpawnMobj(x, y, z, type);
   th->momz = FRACUNIT;
   th->tics -= P_Random(pr_spawnpuff)&3;
 
@@ -1860,7 +1860,7 @@ void P_SpawnPuff(fixed_t x,fixed_t y,fixed_t z)
 
   // don't make punches spark on the wall
 
-  if (attackrange == MELEERANGE)
+  if (attackrange == MELEERANGE && type == MT_PUFF)
     P_SetMobjState (th, S_PUFF3);
 }
 
@@ -2432,17 +2432,17 @@ void P_FloorBounceMissile(mobj_t * mo)
     P_SetMobjState(mo, mobjinfo[mo->type].deathstate);
 }
 
-void Heretic_P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z)
+void Heretic_P_SpawnPuff(fixed_t x, fixed_t y, fixed_t z, mobjtype_t type)
 {
     mobj_t *puff;
 
     z += (P_SubRandom() << 10);
-    puff = P_SpawnMobj(x, y, z, la_pufftype);
+    puff = P_SpawnMobj(x, y, z, type);
     if (puff->info->attacksound)
     {
         S_StartSound(puff, puff->info->attacksound);
     }
-    switch (la_pufftype)
+    switch (type)
     {
         case HERETIC_MT_BEAKPUFF:
         case HERETIC_MT_STAFFPUFF:

@@ -1796,7 +1796,7 @@ dboolean PTR_ShootTraverse (intercept_t* in)
 
     // Spawn bullet puffs.
 
-    P_SpawnPuff (x,y,z);
+    P_SpawnPuff(x,y,z, la_pufftype);
 
     // don't go any farther
 
@@ -1848,7 +1848,7 @@ dboolean PTR_ShootTraverse (intercept_t* in)
   else
   {
     if (heretic || in->d.thing->flags & MF_NOBLOOD)
-      P_SpawnPuff (x,y,z);
+      P_SpawnPuff (x,y,z, la_pufftype);
     else
       P_SpawnBlood (x,y,z, la_damage);
   }
