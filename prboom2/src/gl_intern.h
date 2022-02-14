@@ -579,6 +579,7 @@ typedef struct GLShader_s
 int glsl_Init(void);
 void glsl_SetActiveShader(GLShader *shader);
 void glsl_SetMainShaderActive();
+void glsl_SetSkyShaderActive();
 void glsl_SetFuzzShaderActive();
 void glsl_SetFuzzShaderInactive();
 void glsl_SetLightLevel(float lightlevel);
@@ -592,6 +593,7 @@ int glsl_IsActive(void);
 #define glsl_Init() 0
 #define glsl_SetActiveShader(shader)
 #define glsl_SetMainShaderActive()
+#define glsl_SetSkyShaderActive()
 #define glsl_SetFuzzShaderActive()
 #define glsl_SetFuzzShaderInactive()
 #define glsl_SetLightLevel(lightlevel)

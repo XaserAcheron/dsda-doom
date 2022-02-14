@@ -60,7 +60,9 @@ set(TABLES
     lumps/glfp.lmp
     lumps/glfp_fuzz.lmp
     lumps/glfp_idx.lmp
+    lumps/glfp_isk.lmp
     lumps/glvp.lmp
+    lumps/glvp_isk.lmp
     lumps/-prbhud-.lmp
     lumps/m_ammo.lmp
     lumps/m_armour.lmp

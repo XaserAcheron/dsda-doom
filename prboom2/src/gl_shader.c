@@ -78,6 +78,7 @@ static GLShader *sh_main = NULL;
 static shdr_light_unif_t light_unifs;
 static GLShader *sh_indexed = NULL;
 static shdr_indexed_unif_t indexed_unifs;
+static GLShader *sh_indexed_sky = NULL;
 static GLShader *sh_fuzz = NULL;
 static shdr_fuzz_unif_t fuzz_unifs;
 static GLShader *active_shader = NULL;
@@ -115,6 +116,24 @@ void get_indexed_shader_bindings()
     GLEXT_glUniform1iARB(idx, 0);
 
     idx = GLEXT_glGetUniformLocationARB(sh_indexed->hShader, "colormap");
+    GLEXT_glUniform1iARB(idx, 2);
+  
+    GLEXT_glUseProgramObjectARB(0);
+  }
+}
+
+void get_indexed_sky_shader_bindings()
+{
+  if (sh_indexed_sky)
+  {
+    int idx;
+  
+    GLEXT_glUseProgramObjectARB(sh_indexed_sky->hShader);
+  
+    idx = GLEXT_glGetUniformLocationARB(sh_indexed_sky->hShader, "tex");
+    GLEXT_glUniform1iARB(idx, 0);
+
+    idx = GLEXT_glGetUniformLocationARB(sh_indexed_sky->hShader, "colormap");
     GLEXT_glUniform1iARB(idx, 2);
   
     GLEXT_glUseProgramObjectARB(0);
@@ -160,13 +179,16 @@ int glsl_Init(void)
       sh_indexed = gld_LoadShader("glvp", "glfp_idx");
       get_indexed_shader_bindings();
 
+      sh_indexed_sky = gld_LoadShader("glvp_isk", "glfp_isk");
+      get_indexed_sky_shader_bindings();
+
       sh_fuzz = gld_LoadShader("glvp", "glfp_fuzz");
       get_fuzz_shader_bindings();
       glsl_SetFuzzScreenResolution((float)SCREENWIDTH, (float)SCREENHEIGHT);
     }
   }
 
-  return (sh_main != NULL) && (sh_indexed != NULL) && (sh_fuzz != NULL);
+  return (sh_main != NULL) && (sh_indexed != NULL) && (sh_indexed_sky != NULL) && (sh_fuzz != NULL);
 }
 
 static int ReadLump(const char *filename, const char *lumpname, unsigned char **buffer)
@@ -308,6 +330,18 @@ void glsl_SetMainShaderActive()
   else
   {
     glsl_SetActiveShader(sh_main);
+  }
+}
+
+void glsl_SetSkyShaderActive()
+{
+  if (gl_lightmode == gl_lightmode_indexed)
+  {
+    glsl_SetActiveShader(sh_indexed_sky);
+  }
+  else
+  {
+    glsl_SetActiveShader(NULL);
   }
 }
 

@@ -3135,6 +3135,8 @@ void gld_DrawScene(player_t *player)
   }
 #endif
 
+  glsl_SetSkyShaderActive();
+
   //e6y: skybox
   skybox = 0;
   if (gl_drawskys != skytype_none)
@@ -3296,7 +3298,7 @@ void gld_DrawScene(player_t *player)
   {
     rendered_segs += gld_drawinfo.num_items[GLDIT_SWALL];
     // fake strips of sky
-    glsl_SetActiveShader(NULL);
+    glsl_SetSkyShaderActive();
     gld_DrawStripsSky();
     glsl_SetMainShaderActive();
   }

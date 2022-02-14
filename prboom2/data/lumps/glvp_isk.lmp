@@ -1,0 +1,15 @@
+// [XA] indexed lightmode sky vertex shader (WIP)
+
+void main()
+{
+  gl_FrontColor = gl_Color;
+  gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+
+  vec4 eyeVertex = gl_ModelViewMatrix * gl_Vertex;
+
+  gl_TexCoord[0].s = dot(eyeVertex, gl_EyePlaneS[0]);
+  gl_TexCoord[0].t = dot(eyeVertex, gl_EyePlaneT[0]);
+  gl_TexCoord[0].p = dot(eyeVertex, gl_EyePlaneR[0]);
+  gl_TexCoord[0].q = dot(eyeVertex, gl_EyePlaneQ[0]);
+  gl_TexCoord[0] *= gl_TextureMatrix[0];
+}
