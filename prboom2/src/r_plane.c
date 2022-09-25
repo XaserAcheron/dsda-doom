@@ -62,6 +62,7 @@
 #include "lprintf.h"
 
 #include "dsda/map_format.h"
+#include "dsda/render_stats.h"
 
 int Sky1Texture;
 int Sky2Texture;
@@ -118,23 +119,23 @@ fixed_t *distscale = NULL;
 
 void R_InitPlanesRes(void)
 {
-  if (floorclip) free(floorclip);
-  if (ceilingclip) free(ceilingclip);
-  if (spanstart) free(spanstart);
+  if (floorclip) Z_Free(floorclip);
+  if (ceilingclip) Z_Free(ceilingclip);
+  if (spanstart) Z_Free(spanstart);
 
-  if (cachedheight) free(cachedheight);
+  if (cachedheight) Z_Free(cachedheight);
 
-  if (yslope) free(yslope);
-  if (distscale) free(distscale);
+  if (yslope) Z_Free(yslope);
+  if (distscale) Z_Free(distscale);
 
-  floorclip = calloc(1, SCREENWIDTH * sizeof(*floorclip));
-  ceilingclip = calloc(1, SCREENWIDTH * sizeof(*ceilingclip));
-  spanstart = calloc(1, SCREENHEIGHT * sizeof(*spanstart));
+  floorclip = Z_Calloc(1, SCREENWIDTH * sizeof(*floorclip));
+  ceilingclip = Z_Calloc(1, SCREENWIDTH * sizeof(*ceilingclip));
+  spanstart = Z_Calloc(1, SCREENHEIGHT * sizeof(*spanstart));
 
-  cachedheight = calloc(1, SCREENHEIGHT * sizeof(*cachedheight));
+  cachedheight = Z_Calloc(1, SCREENHEIGHT * sizeof(*cachedheight));
 
-  yslope = calloc(1, SCREENHEIGHT * sizeof(*yslope));
-  distscale = calloc(1, SCREENWIDTH * sizeof(*distscale));
+  yslope = Z_Calloc(1, SCREENHEIGHT * sizeof(*yslope));
+  distscale = Z_Calloc(1, SCREENWIDTH * sizeof(*distscale));
 }
 
 void R_InitVisplanesRes(void)
@@ -206,11 +207,6 @@ static void R_MapPlane(int y, int x1, int x2, draw_span_vars_t *dsvars)
   dsvars->xfrac =  viewx + xoffs + FixedMul(viewcos, distance) + (x1 - centerx) * dsvars->xstep;
   dsvars->yfrac = -viewy + yoffs - FixedMul(viewsin, distance) + (x1 - centerx) * dsvars->ystep;
 
-  if (drawvars.filterfloor == RDRAW_FILTER_LINEAR) {
-    dsvars->xfrac -= (FRACUNIT>>1);
-    dsvars->yfrac -= (FRACUNIT>>1);
-  }
-
   if (!(dsvars->colormap = fixedcolormap))
     {
       dsvars->z = distance;
@@ -268,7 +264,7 @@ static visplane_t *new_visplane(unsigned hash)
   if (!check)
   {
     // e6y: resolution limitation is removed
-    check = calloc(1, sizeof(*check) + sizeof(*check->top) * (SCREENWIDTH * 2));
+    check = Z_Calloc(1, sizeof(*check) + sizeof(*check->top) * (SCREENWIDTH * 2));
     check->bottom = &check->top[SCREENWIDTH + 2];
   }
   else
@@ -341,9 +337,8 @@ visplane_t *R_FindPlane(fixed_t height, int picnum, int lightlevel, int special,
   check->special = special;
   check->xoffs = xoffs;               // killough 2/28/98: Save offsets
   check->yoffs = yoffs;
-#ifdef GL_DOOM
+
   if (V_IsSoftwareMode())
-#endif
   {
     int i;
     check->minx = viewwidth; // Was SCREENWIDTH -- killough 11/98
@@ -407,7 +402,7 @@ static void R_DoDrawPlane(visplane_t *pl)
 {
   register int x;
   draw_column_vars_t dcvars;
-  R_DrawColumn_f colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, drawvars.filterwall, drawvars.filterz);
+  R_DrawColumn_f colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, RDRAW_FILTER_POINT);
 
   R_SetDefaultDrawColumnVars(&dcvars);
 
@@ -581,7 +576,7 @@ static void R_DoDrawPlane(visplane_t *pl)
       // old code: dcvars.iscale = FRACUNIT*200/viewheight;
       dcvars.iscale = skyiscale;
 
-      tex_patch = R_CacheTextureCompositePatchNum(texture);
+      tex_patch = R_TextureCompositePatchByNum(texture);
 
   // killough 10/98: Use sky scrolling offset, and possibly flip picture
         for (x = pl->minx; (dcvars.x = x) <= pl->maxx; x++)
@@ -593,14 +588,12 @@ static void R_DoDrawPlane(visplane_t *pl)
               colfunc(&dcvars);
             }
 
-      R_UnlockTextureCompositePatchNum(texture);
-
     } else {     // regular flat
 
       int stop, light;
       draw_span_vars_t dsvars;
 
-      dsvars.source = W_CacheLumpNum(firstflat + flattranslation[pl->picnum]);
+      dsvars.source = W_LumpByNum(firstflat + flattranslation[pl->picnum]);
 
       if (map_format.hexen)
       {
@@ -706,8 +699,6 @@ static void R_DoDrawPlane(visplane_t *pl)
       for (x = pl->minx ; x <= stop ; x++)
          R_MakeSpans(x,pl->top[x-1],pl->bottom[x-1],
                      pl->top[x],pl->bottom[x], &dsvars);
-
-      W_UnlockLumpNum(firstflat + flattranslation[pl->picnum]);
     }
   }
 }
@@ -722,6 +713,10 @@ void R_DrawPlanes (void)
   visplane_t *pl;
   int i;
   for (i=0;i<MAXVISPLANES;i++)
-    for (pl=visplanes[i]; pl; pl=pl->next, rendered_visplanes++)
+    for (pl=visplanes[i]; pl; pl=pl->next)
+    {
+      dsda_RecordVisPlane();
+
       R_DoDrawPlane(pl);
+    }
 }

@@ -38,9 +38,6 @@
 #include "config.h"
 #endif
 
-#define USE_VERTEX_ARRAYS
-//#define USE_VBO
-
 #include <SDL.h>
 #include <SDL_opengl.h>
 
@@ -83,12 +80,6 @@ extern int GLEXT_CLAMP_TO_EDGE;
 extern int gl_max_texture_size;
 
 extern SDL_PixelFormat RGBAFormat;
-
-// obsolete?
-extern int gl_use_paletted_texture;
-extern int gl_use_shared_texture_palette;
-extern int gl_paletted_texture;
-extern int gl_shared_texture_palette;
 
 extern dboolean gl_ext_texture_filter_anisotropic;
 extern dboolean gl_arb_texture_non_power_of_two;
@@ -140,7 +131,6 @@ extern PFNGLMAPBUFFERARBPROC               GLEXT_glMapBufferARB;
 extern PFNGLUNMAPBUFFERARBPROC             GLEXT_glUnmapBufferARB;
 
 /* GL_ARB_shader_objects */
-#ifdef USE_SHADERS
 extern PFNGLDELETEOBJECTARBPROC            GLEXT_glDeleteObjectARB;
 extern PFNGLGETHANDLEARBPROC               GLEXT_glGetHandleARB;
 extern PFNGLDETACHOBJECTARBPROC            GLEXT_glDetachObjectARB;
@@ -164,7 +154,6 @@ extern PFNGLGETATTACHEDOBJECTSARBPROC       GLEXT_glGetAttachedObjectsARB;
 extern PFNGLGETUNIFORMLOCATIONARBPROC       GLEXT_glGetUniformLocationARB;
 extern PFNGLGETACTIVEUNIFORMARBPROC         GLEXT_glGetActiveUniformARB;
 extern PFNGLGETUNIFORMFVARBPROC             GLEXT_glGetUniformfvARB;
-#endif
 
 void gld_InitOpenGL(void);
 

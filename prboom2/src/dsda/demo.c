@@ -22,28 +22,125 @@
 #include "doomtype.h"
 #include "doomstat.h"
 #include "g_game.h"
-#include "m_argv.h"
 #include "m_misc.h"
 #include "lprintf.h"
 #include "e6y.h"
+#include "p_saveg.h"
 
+#include "dsda.h"
+#include "dsda/args.h"
+#include "dsda/command_display.h"
+#include "dsda/configuration.h"
 #include "dsda/excmd.h"
+#include "dsda/key_frame.h"
 #include "dsda/map_format.h"
+#include "dsda/settings.h"
+#include "dsda/utility.h"
 
 #include "demo.h"
 
 #define INITIAL_DEMO_BUFFER_SIZE 0x20000
 
+static char* dsda_demo_name_base;
 static byte* dsda_demo_write_buffer;
 static byte* dsda_demo_write_buffer_p;
 static int dsda_demo_write_buffer_length;
-static char* dsda_demo_name;
 static int dsda_extra_demo_header_data_offset;
+static int largest_real_offset;
+static int demo_tics;
+static int compatibility_level_unspecified;
 
-#define DSDA_DEMO_VERSION 1
+#define DSDA_DEMO_VERSION 2
+#define DSDA_DEMO_HEADER_START_SIZE 8 // version + signature (6) + dsda version
+
+const int dsda_demo_header_data_size[DSDA_DEMO_VERSION + 1] = { 0, 8, 9 };
+
+typedef struct {
+  int end_marker_location;
+  int demo_tics;
+  byte flags;
+} dsda_demo_header_data_t;
+
+static dsda_demo_header_data_t dsda_demo_header_data;
+
 #define DEMOMARKER 0x80
 
+#define DF_FROM_KEYFRAME 0x01
+
+static dboolean join_queued;
 static int dsda_demo_version;
+static int bytes_per_tic;
+
+static dboolean use_demo_name_with_time;
+
+const char* dsda_DemoNameBase(void) {
+  return dsda_demo_name_base;
+}
+
+void dsda_SetDemoBaseName(const char* name) {
+  size_t base_size;
+  char* p;
+
+  if (dsda_demo_name_base)
+    Z_Free(dsda_demo_name_base);
+
+  dsda_demo_name_base = Z_Strdup(name);
+
+  dsda_CutExtension(dsda_demo_name_base);
+
+  base_size = strlen(dsda_demo_name_base);
+  if (base_size && dsda_demo_name_base[base_size - 1] == '$') {
+    dsda_demo_name_base[base_size - 1] = '\0';
+    use_demo_name_with_time = true;
+  }
+  else
+    use_demo_name_with_time = false;
+}
+
+// from crispy - incrementing demo file names
+char* dsda_GenerateDemoName(unsigned int* counter, const char* base_name) {
+  char* demo_name;
+  size_t demo_name_size;
+  FILE* fp;
+  int j;
+
+  j = *counter;
+  demo_name_size = strlen(base_name) + 11; // 11 = -12345.lmp\0
+  demo_name = Z_Malloc(demo_name_size);
+  snprintf(demo_name, demo_name_size, "%s.lmp", base_name);
+
+  for (; j <= 99999 && (fp = fopen(demo_name, "rb")) != NULL; j++) {
+    snprintf(demo_name, demo_name_size, "%s-%05d.lmp", base_name, j);
+    fclose (fp);
+  }
+
+  *counter = j;
+
+  return demo_name;
+}
+
+char* dsda_NewDemoName(void) {
+  static unsigned int counter = 2;
+
+  if (!dsda_demo_name_base)
+    dsda_SetDemoBaseName("null");
+
+  return dsda_GenerateDemoName(&counter, dsda_demo_name_base);
+}
+
+static int dsda_DemoBufferOffset(void) {
+  return dsda_demo_write_buffer_p - dsda_demo_write_buffer;
+}
+
+int dsda_BytesPerTic(void) {
+  return bytes_per_tic;
+}
+
+void dsda_EvaluateBytesPerTic(void) {
+  bytes_per_tic = (longtics ? 5 : 4);
+  if (raven) bytes_per_tic += 2;
+  if (dsda_ExCmdDemo()) bytes_per_tic++;
+}
 
 static void dsda_EnsureDemoBufferSpace(size_t length) {
   int offset;
@@ -56,7 +153,7 @@ static void dsda_EnsureDemoBufferSpace(size_t length) {
     dsda_demo_write_buffer_length *= 2;
 
   dsda_demo_write_buffer =
-    (byte *)realloc(dsda_demo_write_buffer, dsda_demo_write_buffer_length);
+    (byte *)Z_Realloc(dsda_demo_write_buffer, dsda_demo_write_buffer_length);
 
   if (dsda_demo_write_buffer == NULL)
     I_Error("dsda_EnsureDemoBufferSpace: out of memory!");
@@ -70,20 +167,88 @@ static void dsda_EnsureDemoBufferSpace(size_t length) {
   );
 }
 
-void dsda_InitDemo(char* name) {
-  size_t name_size;
+void dsda_CopyPendingCmd(ticcmd_t* cmd) {
+  if (demorecording && largest_real_offset - dsda_DemoBufferOffset() >= bytes_per_tic) {
+    const byte* p = dsda_demo_write_buffer_p;
 
-  name_size = strlen(name) + 1;
-  dsda_demo_name = malloc(name_size);
-  memcpy(dsda_demo_name, name, name_size);
+    G_ReadOneTick(cmd, &p);
+  }
+  else {
+    memset(cmd, 0, sizeof(*cmd));
+  }
+}
 
-  dsda_demo_write_buffer = malloc(INITIAL_DEMO_BUFFER_SIZE);
+void dsda_RestoreCommandHistory(void) {
+  extern int dsda_command_history_size;
+
+  ticcmd_t cmd = { 0 };
+
+  // the dsda format has variable bytes_per_tic - ignoring these for now
+  if (demorecording && logictic && dsda_command_history_size && !dsda_demo_version) {
+    const byte* p;
+    int count;
+
+    count = MIN(logictic, dsda_command_history_size);
+
+    p = dsda_demo_write_buffer_p - bytes_per_tic * count;
+
+    while (p < dsda_demo_write_buffer_p) {
+      G_ReadOneTick(&cmd, &p);
+      dsda_AddCommandToCommandDisplay(&cmd);
+    }
+  }
+}
+
+void dsda_MarkCompatibilityLevelUnspecified(void) {
+  compatibility_level_unspecified = true;
+}
+
+void dsda_InitDemoRecording(void) {
+  static dboolean demo_key_frame_initialized;
+
+  if (compatibility_level_unspecified)
+    I_Error("You must specify a compatibility level when recording a demo!\n"
+            "Example: dsda-doom -iwad DOOM -complevel 3 -record demo");
+
+  demorecording = true;
+
+  // prboom+ has already cached its settings (with demorecording == false)
+  // we need to reset things here to satisfy strict mode
+  dsda_InitSettings();
+
+  if (!demo_key_frame_initialized) {
+    dsda_InitKeyFrame();
+    demo_key_frame_initialized = true;
+  }
+
+  dsda_ForgetAutoKeyFrames();
+
+  dsda_demo_write_buffer = Z_Malloc(INITIAL_DEMO_BUFFER_SIZE);
   if (dsda_demo_write_buffer == NULL)
     I_Error("dsda_InitDemo: unable to initialize demo buffer!");
 
   dsda_demo_write_buffer_p = dsda_demo_write_buffer;
 
   dsda_demo_write_buffer_length = INITIAL_DEMO_BUFFER_SIZE;
+
+  demo_tics = 0;
+}
+
+static void dsda_SetDemoBufferOffset(int offset) {
+  int current_offset;
+
+  if (dsda_demo_write_buffer == NULL) return;
+
+  current_offset = dsda_DemoBufferOffset();
+
+  // Cannot load forward (demo buffer would desync)
+  if (offset > current_offset)
+    I_Error("dsda_SetDemoBufferOffset: Impossible time traveling detected.");
+
+  if (current_offset > largest_real_offset)
+    largest_real_offset = current_offset;
+
+  dsda_demo_write_buffer_p = dsda_demo_write_buffer + offset;
 }
 
 void dsda_WriteToDemo(void* buffer, size_t length) {
@@ -91,6 +256,11 @@ void dsda_WriteToDemo(void* buffer, size_t length) {
 
   memcpy(dsda_demo_write_buffer_p, buffer, length);
   dsda_demo_write_buffer_p += length;
+}
+
+void dsda_WriteTicToDemo(void* buffer, size_t length) {
+  dsda_WriteToDemo(buffer, length);
+  ++demo_tics;
 }
 
 static void dsda_WriteIntToHeader(byte** p, int value) {
@@ -118,74 +288,233 @@ static int dsda_ReadIntFromHeader(const byte* p) {
   return result;
 }
 
-static void dsda_WriteExtraDemoHeaderData(int end_marker_location, int demo_tic_count) {
+static void dsda_WriteExtraDemoHeaderData(int end_marker_location) {
   byte* header_p;
 
   if (!dsda_demo_version) return;
 
   header_p = dsda_demo_write_buffer + dsda_extra_demo_header_data_offset;
   dsda_WriteIntToHeader(&header_p, end_marker_location);
-  dsda_WriteIntToHeader(&header_p, demo_tic_count);
+  dsda_WriteIntToHeader(&header_p, demo_tics);
 }
 
-void dsda_EndDemoRecording(void) {
-  int demo_tic_count;
+static void dsda_SetExtraDemoHeaderFlag(byte flag) {
+  byte* header_p;
+
+  header_p = dsda_demo_write_buffer + dsda_extra_demo_header_data_offset;
+  header_p += 8; // skip other fields
+  *header_p |= flag;
+}
+
+dboolean dsda_StartDemoSegment(const char* demo_name) {
+  if (demorecording)
+    return false;
+
+  dsda_UpdateFlag(dsda_arg_dsdademo, true);
+  dsda_SetDemoBaseName(demo_name);
+  dsda_InitDemoRecording();
+  G_BeginRecording();
+  dsda_SetExtraDemoHeaderFlag(DF_FROM_KEYFRAME);
+
+  {
+    dsda_key_frame_t key_frame;
+
+    memset(&key_frame, 0, sizeof(key_frame));
+    dsda_StoreKeyFrame(&key_frame, false, false);
+    dsda_WriteToDemo(&key_frame.buffer_length, sizeof(key_frame.buffer_length));
+    dsda_WriteToDemo(key_frame.buffer, key_frame.buffer_length);
+    Z_Free(key_frame.buffer);
+  }
+
+  dsda_UpdateStrictMode();
+
+  return true;
+}
+
+const byte* dsda_EvaluateDemoStartPoint(const byte* demo_p) {
+  if (dsda_demo_version && dsda_demo_header_data.flags & DF_FROM_KEYFRAME) {
+    dsda_key_frame_t key_frame;
+
+    memset(&key_frame, 0, sizeof(key_frame));
+
+    memcpy(&key_frame.buffer_length, demo_p, sizeof(key_frame.buffer_length));
+    demo_p += sizeof(key_frame.buffer_length);
+
+    // Is it worth creating a redundant read-only version?
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdiscarded-qualifiers"
+    key_frame.buffer = demo_p;
+    #pragma GCC diagnostic pop
+
+    dsda_RestoreKeyFrame(&key_frame, false);
+    demo_p += key_frame.buffer_length;
+  }
+
+  return demo_p;
+}
+
+static int dsda_ExportDemoToFile(const char* demo_name) {
   int end_marker_location;
   byte end_marker = DEMOMARKER;
-
-  demorecording = false;
+  int length;
 
   end_marker_location = dsda_demo_write_buffer_p - dsda_demo_write_buffer;
-  demo_tic_count = gametic - basetic;
 
   dsda_WriteToDemo(&end_marker, 1);
 
-  dsda_WriteExtraDemoHeaderData(end_marker_location, demo_tic_count);
+  dsda_WriteExtraDemoHeaderData(end_marker_location);
 
   G_WriteDemoFooter();
 
-  dsda_WriteDemoToFile();
+  length = dsda_DemoBufferOffset();
+
+  if (!M_WriteFile(demo_name, dsda_demo_write_buffer, length))
+    I_Error("dsda_WriteDemoToFile: Failed to write demo file.");
+
+  return end_marker_location;
+}
+
+static void dsda_FreeDemoBuffer(void) {
+  Z_Free(dsda_demo_write_buffer);
+  dsda_demo_write_buffer = NULL;
+  dsda_demo_write_buffer_p = NULL;
+  dsda_demo_write_buffer_length = 0;
+}
+
+static dboolean dsda_UseDemoNameWithTime(void) {
+  return use_demo_name_with_time && (dsda_ILComplete() || dsda_MovieComplete());
+}
+
+static char* dsda_DemoNameWithTime(void) {
+  char* demo_name;
+  char* base_name;
+  int counter = 2;
+  size_t length;
+
+  length = strlen(dsda_demo_name_base) + 16 + 1;
+
+  base_name = Z_Malloc(length);
+
+  if (dsda_ILComplete()) {
+    dsda_level_time_t level_time;
+
+    dsda_DecomposeILTime(&level_time);
+
+    if (level_time.m == 0 && level_time.s < 10)
+      snprintf(base_name, length, "%s%d%02d",
+               dsda_demo_name_base, level_time.s, level_time.t);
+    else
+      snprintf(base_name, length, "%s%d%02d",
+               dsda_demo_name_base, level_time.m, level_time.s);
+  }
+  else {
+    dsda_movie_time_t movie_time;
+
+    dsda_DecomposeMovieTime(&movie_time);
+
+    if (movie_time.h)
+      snprintf(base_name, length, "%s%d%02d%02d",
+               dsda_demo_name_base, movie_time.h, movie_time.m, movie_time.s);
+    else if (movie_time.m)
+      snprintf(base_name, length, "%s%d%02d",
+               dsda_demo_name_base, movie_time.m, movie_time.s);
+    else
+      snprintf(base_name, length, "%s%03d",
+               dsda_demo_name_base, movie_time.s);
+  }
+
+  demo_name = dsda_GenerateDemoName(&counter, base_name);
+
+  Z_Free(base_name);
+
+  return demo_name;
+}
+
+void dsda_EndDemoRecording(void) {
+  char* demo_name;
+
+  demorecording = false;
+
+  if (dsda_UseDemoNameWithTime())
+    demo_name = dsda_DemoNameWithTime();
+  else
+    demo_name = dsda_NewDemoName();
+
+  dsda_ExportDemoToFile(demo_name);
+
+  dsda_FreeDemoBuffer();
+
+  Z_Free(demo_name);
 
   lprintf(LO_INFO, "Demo finished recording\n");
 }
 
-void dsda_WriteDemoToFile(void) {
-  int length;
+void dsda_ExportDemo(const char* name) {
+  char* demo_name;
+  char* base_name;
+  int counter = 2;
+  int old_offset;
 
-  length = dsda_DemoBufferOffset();
+  base_name = Z_Strdup(name);
 
-  if (!M_WriteFile(dsda_demo_name, dsda_demo_write_buffer, length))
-    I_Error("dsda_WriteDemoToFile: Failed to write demo file.");
+  dsda_CutExtension(base_name);
 
-  free(dsda_demo_write_buffer);
-  free(dsda_demo_name);
-  dsda_demo_write_buffer = NULL;
-  dsda_demo_write_buffer_p = NULL;
-  dsda_demo_write_buffer_length = 0;
-  dsda_demo_name = NULL;
+  demo_name = dsda_GenerateDemoName(&counter, base_name);
+
+  old_offset = dsda_ExportDemoToFile(demo_name);
+
+  dsda_SetDemoBufferOffset(old_offset);
+
+  Z_Free(base_name);
+  Z_Free(demo_name);
+
+  lprintf(LO_INFO, "Demo recording exported\n");
 }
 
-int dsda_DemoBufferOffset(void) {
-  return dsda_demo_write_buffer_p - dsda_demo_write_buffer;
+int dsda_DemoDataSize(byte complete) {
+  int buffer_size;
+
+  buffer_size = complete ? dsda_DemoBufferOffset() : 0;
+
+  return sizeof(buffer_size) + sizeof(demo_tics) + buffer_size;
 }
 
-int dsda_CopyDemoBuffer(void* buffer) {
-  int offset;
+void dsda_StoreDemoData(byte complete) {
+  int demo_write_buffer_offset;
 
-  offset = dsda_DemoBufferOffset();
-  memcpy(buffer, dsda_demo_write_buffer, offset);
+  demo_write_buffer_offset = dsda_DemoBufferOffset();
 
-  return offset;
+  P_SAVE_X(demo_write_buffer_offset);
+  P_SAVE_X(demo_tics);
+
+  if (complete && demo_write_buffer_offset)
+    P_SAVE_SIZE(dsda_demo_write_buffer, demo_write_buffer_offset);
 }
 
-void dsda_SetDemoBufferOffset(int offset) {
-  if (dsda_demo_write_buffer == NULL) return;
+void dsda_RestoreDemoData(byte complete) {
+  int demo_write_buffer_offset;
 
-  // Cannot load forward (demo buffer would desync)
-  if (offset > dsda_DemoBufferOffset())
-    I_Error("dsda_SetDemoBufferOffset: Impossible time traveling detected.");
+  P_LOAD_X(demo_write_buffer_offset);
+  P_LOAD_X(demo_tics);
 
-  dsda_demo_write_buffer_p = dsda_demo_write_buffer + offset;
+  if (complete && demo_write_buffer_offset) {
+    dsda_SetDemoBufferOffset(0);
+    dsda_WriteToDemo(save_p, demo_write_buffer_offset);
+    save_p += demo_write_buffer_offset;
+  }
+  else
+    dsda_SetDemoBufferOffset(demo_write_buffer_offset);
+}
+
+void dsda_QueueJoin(void) {
+  join_queued = true;
+}
+
+dboolean dsda_PendingJoin(void) {
+  if (!join_queued) return false;
+
+  join_queued = 0;
+  return true;
 }
 
 void dsda_JoinDemoCmd(ticcmd_t* cmd) {
@@ -195,10 +524,9 @@ void dsda_JoinDemoCmd(ticcmd_t* cmd) {
     (cmd->buttons & BT_CHANGE) == 0
   )
     cmd->buttons |= BT_JOIN;
+  else
+    dsda_QueueJoin();
 }
-
-#define DSDA_DEMO_HEADER_START_SIZE 8 // version + signature (6) + dsda version
-#define DSDA_DEMO_HEADER_DATA_SIZE (2*sizeof(int))
 
 static const byte* dsda_ReadDSDADemoHeader(const byte* demo_p, const byte* header_p, size_t size) {
   dsda_demo_version = 0;
@@ -223,10 +551,19 @@ static const byte* dsda_ReadDSDADemoHeader(const byte* demo_p, const byte* heade
   if (dsda_demo_version > DSDA_DEMO_VERSION)
     return NULL;
 
-  if (demo_p - header_p + DSDA_DEMO_HEADER_DATA_SIZE > size)
+  if (demo_p - header_p + dsda_demo_header_data_size[dsda_demo_version] > size)
     return NULL;
 
-  demo_p += DSDA_DEMO_HEADER_DATA_SIZE;
+  dsda_demo_header_data.end_marker_location = dsda_ReadIntFromHeader(demo_p);
+  demo_p += 4;
+
+  dsda_demo_header_data.demo_tics = dsda_ReadIntFromHeader(demo_p);
+  demo_p += 4;
+
+  if (dsda_demo_version >= 2)
+    dsda_demo_header_data.flags = *demo_p++;
+  else
+    dsda_demo_header_data.flags = 0;
 
   dsda_EnableExCmd();
   dsda_EnableCasualExCmdFeatures();
@@ -304,8 +641,8 @@ void dsda_WriteDSDADemoHeader(byte** p) {
 
   dsda_demo_version = DSDA_DEMO_VERSION;
   dsda_extra_demo_header_data_offset = demo_p - *p;
-  memset(demo_p, 0, DSDA_DEMO_HEADER_DATA_SIZE);
-  demo_p += DSDA_DEMO_HEADER_DATA_SIZE;
+  memset(demo_p, 0, dsda_demo_header_data_size[dsda_demo_version]);
+  demo_p += dsda_demo_header_data_size[dsda_demo_version];
 
   *p = demo_p;
 }
@@ -315,7 +652,7 @@ void dsda_ApplyDSDADemoFormat(byte** demo_p) {
 
   if (map_format.zdoom)
   {
-    if (!M_CheckParm("-baddemo"))
+    if (!dsda_Flag(dsda_arg_baddemo))
       I_Error("Experimental formats require the -baddemo option to record.");
 
     if (!mbf21)
@@ -324,7 +661,7 @@ void dsda_ApplyDSDADemoFormat(byte** demo_p) {
     use_dsda_format = true;
   }
 
-  if (M_CheckParm("-dsdademo"))
+  if (dsda_Flag(dsda_arg_dsdademo))
   {
     use_dsda_format = true;
     dsda_EnableCasualExCmdFeatures();
@@ -342,7 +679,7 @@ int dsda_DemoTicsCount(const byte* p, const byte* demobuffer, int demolength) {
   extern int demo_playerscount;
 
   if (dsda_demo_version)
-    return dsda_ReadIntFromHeader(demobuffer + DSDA_DEMO_HEADER_START_SIZE + 4);
+    return dsda_demo_header_data.demo_tics;
 
   do {
     count++;
@@ -361,7 +698,7 @@ const byte* dsda_DemoMarkerPosition(byte* buffer, size_t file_size) {
   if (dsda_demo_version) {
     int i;
 
-    p = (const byte*) (buffer + dsda_ReadIntFromHeader(buffer + DSDA_DEMO_HEADER_START_SIZE));
+    p = (const byte*) (buffer + dsda_demo_header_data.end_marker_location);
 
     if (*p != DEMOMARKER)
       return NULL;

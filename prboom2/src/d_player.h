@@ -72,24 +72,11 @@ typedef enum
 
 } playerstate_t;
 
-
-//
-// Player internal flags, for cheats and debug.
-//
-typedef enum
-{
-  // No clipping, walk through barriers.
-  CF_NOCLIP           = 1,
-  // No damage, no health loss.
-  CF_GODMODE          = 2,
-  // Not really a cheat, just a debug aid.
-  CF_NOMOMENTUM       = 4,
-
-  // [RH] Monsters don't target
-  CF_NOTARGET         = 8,
-  // [RH] Flying player
-  CF_FLY              = 16,
-} cheat_t;
+#define CF_NOCLIP        0x01 // no clipping
+#define CF_GODMODE       0x02 // immune to damage
+#define CF_INFINITE_AMMO 0x04 // infinite ammo
+#define CF_NOTARGET      0x08 // monsters don't target
+#define CF_FLY           0x10 // flying player
 
 // heretic
 typedef struct
@@ -202,8 +189,7 @@ typedef struct player_s
   int                 attackdown;
   int                 usedown;
 
-  // Bit flags, for cheats and debug.
-  // See cheat_t, above.
+  // See CF flags above.
   int                 cheats;
 
   // Refired shots are less accurate.
@@ -310,7 +296,6 @@ typedef struct
 typedef struct
 {
   int         epsd;   // episode # (0-2)
-  struct MapEntry *lastmapinfo;
 
   // if true, splash the secret level
   dboolean   didsecret;
@@ -319,7 +304,6 @@ typedef struct
   int         last;
   int         next;
   int         nextep;	// for when MAPINFO progression crosses into another episode.
-  struct MapEntry *nextmapinfo;
 
   int         maxkills;
   int         maxitems;
@@ -340,5 +324,6 @@ typedef struct
 } wbstartstruct_t;
 
 angle_t P_PlayerPitch(player_t* player);
+fixed_t P_PlayerSpeed(player_t* player);
 
 #endif

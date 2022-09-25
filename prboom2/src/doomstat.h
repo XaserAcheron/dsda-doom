@@ -41,7 +41,6 @@
 
 // We need the playr data structure as well.
 #include "d_player.h"
-#include "umapinfo.h"
 
 #ifdef __GNUG__
 #pragma interface
@@ -70,16 +69,13 @@ extern char *MAPNAME(int e, int m);
 extern  dboolean modifiedgame;
 
 // CPhipps - new compatibility handling
-extern complevel_t compatibility_level, default_compatibility_level;
+extern complevel_t compatibility_level;
 
 // CPhipps - old compatibility testing flags aliased to new handling
 #define compatibility (compatibility_level<=boom_compatibility_compatibility)
 #define demo_compatibility (compatibility_level < boom_compatibility_compatibility)
 #define mbf_features (compatibility_level>=mbf_compatibility)
 #define mbf21 (compatibility_level == mbf21_compatibility)
-
-// v1.1-like pitched sounds
-extern int pitched_sounds;        // killough
 
 extern int demo_insurance;      // killough 4/5/98
 
@@ -138,7 +134,7 @@ enum {
 };
 
 extern int comp[MBF_COMP_TOTAL];
-extern int /*comperr[COMPERR_NUM], */default_comperr[COMPERR_NUM];
+extern int default_comperr[COMPERR_NUM];
 
 // -------------------------------------------
 // Language.
@@ -151,7 +147,6 @@ extern  Language_t   language;
 // Defaults for menu, methinks.
 extern  skill_t   startskill;
 extern  int             startepisode;
-extern  int   startmap;
 
 extern  dboolean   autostart;
 
@@ -159,7 +154,6 @@ extern  dboolean   autostart;
 extern  skill_t         gameskill;
 extern  int   gameepisode;
 extern  int   gamemap;
-extern struct MapEntry *gamemapinfo;
 
 // Nightmare mode flag, single player.
 extern  dboolean         respawnmonsters;
@@ -193,43 +187,24 @@ extern int snd_MusicVolume;    // maximum volume for music
 // CPhipps - screen parameters
 extern int desired_screenwidth, desired_screenheight;
 
-// -------------------------
-// Status flags for refresh.
-//
+extern int automap_active;
+extern int automap_overlay;
+extern int automap_rotate;
+extern int automap_follow;
+extern int automap_grid;
 
-enum automapmode_e {
-  am_active = 1,  // currently shown
-  am_overlay= 2,  // covers the screen, i.e. not overlay mode
-  am_rotate = 4,  // rotates to the player facing direction
-  am_follow = 8,  // keep the player centred
-  am_grid   =16,  // show grid
-};
-extern enum automapmode_e automapmode; // Mode that the automap is in
+#define automap_on (automap_active && !automap_overlay)
+#define automap_off (!automap_active || automap_overlay)
 
-enum menuactive_e {
+typedef enum {
+  mnact_nochange = -1,
   mnact_inactive, // no menu
   mnact_float, // doom-style large font menu, doesn't overlap anything
   mnact_full, // boom-style small font menu, may overlap status bar
-};
-extern enum menuactive_e menuactive; // Type of menu overlaid, if any
+} menuactive_t;
+extern menuactive_t menuactive; // Type of menu overlaid, if any
 
-extern  dboolean paused;        // Game Pause?
 extern  dboolean nodrawers;
-extern  dboolean noblit;
-
-#define PAUSE_COMMAND  1
-#define PAUSE_PLAYBACK 2
-
-#define interpolate_view (!paused && movement_smooth)
-#define paused_via_menu (!demoplayback && menuactive && !netgame)
-#define paused_during_playback (paused & PAUSE_PLAYBACK)
-#define paused_outside_demo (paused_during_playback || paused_via_menu)
-#define paused_camera (paused && !walkcamera.type)
-
-// This one is related to the 3-screen display mode.
-// ANG90 = left side, ANG270 = right
-extern  int viewangleoffset;
-extern  int viewpitchoffset;
 
 // Player taking events, and displaying.
 extern  int consoleplayer;
@@ -242,28 +217,29 @@ extern  int displayplayer;
 extern  int totalkills, totallive;
 extern  int totalitems;
 extern  int totalsecret;
-extern  int show_alive;
 
-// Timer, for scores.
-extern  int basetic;    /* killough 9/29/98: levelstarttic, adjusted */
-extern  int leveltime;  // tics in game play for par
+extern  int basetic;
+extern  int leveltime;       // level time in tics
+extern  int totalleveltimes; // sum of intermission times in tics at second resolution
 
 // --------------------------------------
 // DEMO playback/recording related stuff.
 
-extern  dboolean usergame;
 extern  dboolean demoplayback;
 extern  dboolean demorecording;
 extern  int demover;
 
-// Quit after playing a demo from cmdline.
-extern  dboolean   singledemo;
+extern  dboolean userdemo;
+#define userplayback (demoplayback && userdemo)
+#define reelplayback (demoplayback && !userdemo)
+
 // Print timing information after quitting.  killough
 extern  dboolean   timingdemo;
 // Run tick clock at fastest speed possible while playing demo.  killough
 extern  dboolean   fastdemo;
 
 extern  gamestate_t  gamestate;
+extern  dboolean     in_game;
 
 //-----------------------------
 // Internal parameters, fixed.
@@ -272,6 +248,8 @@ extern  gamestate_t  gamestate;
 //  WAD, partly set at startup time.
 
 extern  int   gametic;
+
+#define logictic (gametic - basetic)
 
 //e6y
 extern  dboolean realframe;
@@ -305,20 +283,12 @@ extern wbstartstruct_t wminfo;
 // File handling stuff.
 extern  FILE   *debugfile;
 
-// if true, load all graphics at level load
-extern  dboolean precache;
-
 // wipegamestate can be set to -1
 //  to force a wipe on the next draw
 extern  gamestate_t     wipegamestate;
 
-extern  int             mouseSensitivity_horiz; // killough
-extern  int             mouseSensitivity_vert;
-
 // debug flag to cancel adaptiveness
 extern  dboolean         singletics;
-
-extern  int             bodyqueslot;
 
 // Needed to store the number of the dummy sky flat.
 // Used for rendering, as well as tracking projectiles etc.
@@ -330,8 +300,7 @@ extern  int        maketic;
 // Networking and tick handling related.
 #define BACKUPTICS              12
 
-extern  ticcmd_t   netcmds[][BACKUPTICS];
-extern  int        ticdup;
+extern  ticcmd_t   local_cmds[][BACKUPTICS];
 
 //-----------------------------------------------------------------------------
 
@@ -362,8 +331,6 @@ extern int monster_friction;
 
 /* killough 9/9/98: whether monsters help friends */
 extern int help_friends;
-
-extern int flashing_hom; // killough 10/98
 
 /* killough 7/19/98: whether monsters should fight against each other */
 extern int monster_infighting;

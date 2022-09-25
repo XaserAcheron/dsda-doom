@@ -27,9 +27,11 @@
 #include "p_setup.h"
 
 #include "dsda/map_format.h"
+#include "dsda/mapinfo.h"
+
+#include "p_anim.h"
 
 #define ANIM_SCRIPT_NAME "ANIMDEFS"
-#define MAX_ANIM_DEFS 20
 #define MAX_FRAME_DEFS 96
 #define ANIM_FLAT 0
 #define ANIM_TEXTURE 1
@@ -49,16 +51,6 @@ typedef struct
     int tics;
 } frameDef_t;
 
-typedef struct
-{
-    int type;
-    int index;
-    int tics;
-    int currentFrameDef;
-    int startFrameDef;
-    int endFrameDef;
-} animDef_t;
-
 static void P_LightningFlash(void);
 
 extern fixed_t Sky1ColumnOffset;
@@ -70,12 +62,12 @@ extern line_t *linespeciallist[];
 fixed_t Sky1ScrollDelta;
 fixed_t Sky2ScrollDelta;
 
-static animDef_t AnimDefs[MAX_ANIM_DEFS];
+animDef_t AnimDefs[MAX_ANIM_DEFS];
 static frameDef_t FrameDefs[MAX_FRAME_DEFS];
 static int AnimDefCount;
 static dboolean LevelHasLightning;
-static int NextLightningFlash;
-static int LightningFlash;
+int NextLightningFlash;
+int LightningFlash;
 static int *LightningLightLevels;
 
 void P_AnimateCompatibleSurfaces(void)
@@ -238,7 +230,7 @@ static void P_LightningFlash(void)
                     tempLight++;
                 }
             }
-            Sky1Texture = P_GetMapSky1Texture(gamemap);
+            Sky1Texture = dsda_Sky1Texture();
         }
         return;
     }
@@ -284,7 +276,7 @@ static void P_LightningFlash(void)
     }
     if (foundSec)
     {
-        Sky1Texture = P_GetMapSky2Texture(gamemap);     // set alternate sky
+        Sky1Texture = dsda_Sky2Texture();     // set alternate sky
         S_StartSound(NULL, hexen_sfx_thunder_crash);
     }
     // Calculate the next lighting flash
@@ -318,7 +310,7 @@ void P_InitLightning(void)
     int i;
     int secCount;
 
-    if (!P_GetMapLightning(gamemap))
+    if (!dsda_MapLightning())
     {
         LevelHasLightning = false;
         LightningFlash = 0;
@@ -344,8 +336,7 @@ void P_InitLightning(void)
         LevelHasLightning = false;
         return;
     }
-    LightningLightLevels = (int *) Z_Malloc(secCount * sizeof(int), PU_LEVEL,
-                                            NULL);
+    LightningLightLevels = (int *) Z_MallocLevel(secCount * sizeof(int));
     NextLightningFlash = ((P_Random(pr_hexen) & 15) + 5) * 35;  // don't flash at level start
 }
 
@@ -386,7 +377,7 @@ void P_InitFTAnims(void)
         ignore = false;
         if (ad->type == ANIM_FLAT)
         {
-            if ((W_CheckNumForName)(sc_String, ns_flats) == -1)
+            if (!W_LumpNameExists2(sc_String, ns_flats))
             {
                 ignore = true;
             }

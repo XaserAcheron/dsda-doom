@@ -37,11 +37,8 @@
 
 #include "doomstat.h"
 
-extern int movement_smooth_default;
 extern int movement_smooth;
 extern dboolean isExtraDDisplay;
-
-extern int interpolation_maxobjects;
 
 typedef struct {
   fixed_t frac;
@@ -51,6 +48,7 @@ extern tic_vars_t tic_vars;
 
 void M_ChangeUncappedFrameRate(void);
 
+dboolean R_ViewInterpolation(void);
 void R_InterpolateView(player_t *player, fixed_t frac);
 
 extern dboolean WasRenderedInTryRunTics;

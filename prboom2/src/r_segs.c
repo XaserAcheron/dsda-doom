@@ -49,6 +49,8 @@
 #include "v_video.h"
 #include "lprintf.h"
 
+#include "dsda/render_stats.h"
+
 // OPTIMIZE: closed two sided lines as single sided
 
 // killough 1/6/98: replaced globals with statics where appropriate
@@ -267,13 +269,13 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
 
   // killough 4/11/98: draw translucent 2s normal textures
 
-  colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, drawvars.filterwall, drawvars.filterz);
+  colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, RDRAW_FILTER_POINT);
   if (curline->linedef->tranlump >= 0)
     {
-      colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLUCENT, drawvars.filterwall, drawvars.filterz);
+      colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLUCENT, RDRAW_FILTER_POINT);
       tranmap = main_tranmap;
       if (curline->linedef->tranlump > 0)
-        tranmap = W_CacheLumpNum(curline->linedef->tranlump-1);
+        tranmap = W_LumpByNum(curline->linedef->tranlump-1);
     }
   // killough 4/11/98: end translucent 2s normal code
 
@@ -318,7 +320,7 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
     dcvars.nextcolormap = dcvars.colormap; // for filtering -- POPE
   }
 
-  patch = R_CacheTextureCompositePatchNum(texnum);
+  patch = R_TextureCompositePatchByNum(texnum);
 
   // draw the columns
   for (dcvars.x = x1 ; dcvars.x <= x2 ; dcvars.x++, spryscale += rw_scalestep)
@@ -327,8 +329,6 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
         // calculate texture offset - POPE
         angle = (ds->rw_centerangle + xtoviewangle[dcvars.x]) >> ANGLETOFINESHIFT;
         dcvars.texu = ds->rw_offset - FixedMul(finetangent[angle], ds->rw_distance);
-        if (drawvars.filterwall == RDRAW_FILTER_LINEAR)
-          dcvars.texu -= (FRACUNIT>>1);
 
         if (!fixedcolormap)
           dcvars.z = spryscale; // for filtering -- POPE
@@ -390,12 +390,6 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
         maskedtexturecol[dcvars.x] = INT_MAX; // dropoff overflow
       }
 
-  // Except for main_tranmap, mark others purgable at this point
-  if (curline->linedef->tranlump > 0)
-    W_UnlockLumpNum(curline->linedef->tranlump-1); // cph - unlock it
-
-  R_UnlockTextureCompositePatchNum(texnum);
-
   curline = NULL; /* cph 2001/11/18 - must clear curline now we're done with it, so R_ColourMap doesn't try using it for other things */
 }
 
@@ -411,13 +405,14 @@ static int didsolidcol; /* True if at least one column was marked solid */
 static void R_RenderSegLoop (void)
 {
   const rpatch_t *tex_patch;
-  R_DrawColumn_f colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, drawvars.filterwall, drawvars.filterz);
+  R_DrawColumn_f colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, RDRAW_FILTER_POINT);
   draw_column_vars_t dcvars;
   fixed_t  texturecolumn = 0;   // shut up compiler warning
 
   R_SetDefaultDrawColumnVars(&dcvars);
 
-  rendered_segs++;
+  dsda_RecordDrawSeg();
+
   for ( ; rw_x < rw_stopx ; rw_x++)
     {
 
@@ -475,8 +470,6 @@ static void R_RenderSegLoop (void)
           angle_t angle =(rw_centerangle+xtoviewangle[rw_x])>>ANGLETOFINESHIFT;
 
           texturecolumn = rw_offset-FixedMul(finetangent[angle],rw_distance);
-          if (drawvars.filterwall == RDRAW_FILTER_LINEAR)
-            texturecolumn -= (FRACUNIT>>1);
           dcvars.texu = texturecolumn; // for filtering -- POPE
           texturecolumn >>= FRACBITS;
 
@@ -508,13 +501,12 @@ static void R_RenderSegLoop (void)
           dcvars.yl = yl;     // single sided line
           dcvars.yh = yh;
           dcvars.texturemid = rw_midtexturemid;
-          tex_patch = R_CacheTextureCompositePatchNum(midtexture);
+          tex_patch = R_TextureCompositePatchByNum(midtexture);
           dcvars.source = R_GetTextureColumn(tex_patch, texturecolumn);
           dcvars.prevsource = R_GetTextureColumn(tex_patch, texturecolumn-1);
           dcvars.nextsource = R_GetTextureColumn(tex_patch, texturecolumn+1);
           dcvars.texheight = midtexheight;
           colfunc(&dcvars);
-          R_UnlockTextureCompositePatchNum(midtexture);
           tex_patch = NULL;
           ceilingclip[rw_x] = viewheight;
           floorclip[rw_x] = -1;
@@ -537,13 +529,12 @@ static void R_RenderSegLoop (void)
                   dcvars.yl = yl;
                   dcvars.yh = mid;
                   dcvars.texturemid = rw_toptexturemid;
-                  tex_patch = R_CacheTextureCompositePatchNum(toptexture);
+                  tex_patch = R_TextureCompositePatchByNum(toptexture);
                   dcvars.source = R_GetTextureColumn(tex_patch,texturecolumn);
                   dcvars.prevsource = R_GetTextureColumn(tex_patch,texturecolumn-1);
                   dcvars.nextsource = R_GetTextureColumn(tex_patch,texturecolumn+1);
                   dcvars.texheight = toptexheight;
                   colfunc(&dcvars);
-                  R_UnlockTextureCompositePatchNum(toptexture);
                   tex_patch = NULL;
                   ceilingclip[rw_x] = mid;
                 }
@@ -571,13 +562,12 @@ static void R_RenderSegLoop (void)
                   dcvars.yl = mid;
                   dcvars.yh = yh;
                   dcvars.texturemid = rw_bottomtexturemid;
-                  tex_patch = R_CacheTextureCompositePatchNum(bottomtexture);
+                  tex_patch = R_TextureCompositePatchByNum(bottomtexture);
                   dcvars.source = R_GetTextureColumn(tex_patch, texturecolumn);
                   dcvars.prevsource = R_GetTextureColumn(tex_patch, texturecolumn-1);
                   dcvars.nextsource = R_GetTextureColumn(tex_patch, texturecolumn+1);
                   dcvars.texheight = bottomtexheight;
                   colfunc(&dcvars);
-                  R_UnlockTextureCompositePatchNum(bottomtexture);
                   tex_patch = NULL;
                   floorclip[rw_x] = mid;
                 }
@@ -640,7 +630,7 @@ void R_StoreWallRange(const int start, const int stop)
     {
       unsigned pos = ds_p - drawsegs; // jff 8/9/98 fix from ZDOOM1.14a
       unsigned newmax = maxdrawsegs ? maxdrawsegs*2 : 128; // killough
-      drawsegs = realloc(drawsegs,newmax*sizeof(*drawsegs));
+      drawsegs = Z_Realloc(drawsegs,newmax*sizeof(*drawsegs));
       ds_p = drawsegs + pos;          // jff 8/9/98 fix from ZDOOM1.14a
       maxdrawsegs = newmax;
     }
@@ -648,7 +638,6 @@ void R_StoreWallRange(const int start, const int stop)
   if(curline->miniseg == false) // figgi -- skip minisegs
     curline->linedef->flags |= ML_MAPPED;
 
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     // proff 11/99: the rest of the calculations is not needed for OpenGL
@@ -657,8 +646,6 @@ void R_StoreWallRange(const int start, const int stop)
 
     return;
   }
-#endif
-
 
 #ifdef RANGECHECK
   if (start >=viewwidth || start > stop)
@@ -704,7 +691,7 @@ void R_StoreWallRange(const int start, const int stop)
         do
           maxopenings = maxopenings ? maxopenings*2 : 16384;
         while (need > maxopenings);
-        openings = realloc(openings, maxopenings * sizeof(*openings));
+        openings = Z_Realloc(openings, maxopenings * sizeof(*openings));
         lastopening = openings + pos;
 
       // jff 8/9/98 borrowed fix for openings from ZDOOM1.14

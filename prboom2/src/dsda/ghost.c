@@ -17,7 +17,6 @@
 
 #include <stdio.h>
 
-#include "m_argv.h"
 #include "lprintf.h"
 #include "doomtype.h"
 #include "doomstat.h"
@@ -96,7 +95,7 @@ dsda_ghost_import_t dsda_ghost_import;
 void dsda_InitGhostExport(const char* name) {
   int version;
   char* filename;
-  filename = malloc(strlen(name) + 4 + 1);
+  filename = Z_Malloc(strlen(name) + 4 + 1);
   AddDefaultExtension(strcpy(filename, name), ".gst");
 
   dsda_ghost_export = fopen(filename, "wb");
@@ -107,43 +106,43 @@ void dsda_InitGhostExport(const char* name) {
   version = DSDA_GHOST_VERSION;
   fwrite(&version, sizeof(int), 1, dsda_ghost_export);
 
-  free(filename);
+  Z_Free(filename);
 }
 
-void dsda_OpenGhostFile(int arg_i, dsda_ghost_file_t* ghost_file) {
+static void dsda_OpenGhostFile(const char* ghost_name, dsda_ghost_file_t* ghost_file) {
   char* filename;
 
   memset(ghost_file, 0, sizeof(dsda_ghost_file_t));
 
-  filename = malloc(strlen(myargv[arg_i]) + 4 + 1);
-  AddDefaultExtension(strcpy(filename, myargv[arg_i]), ".gst");
+  filename = Z_Malloc(strlen(ghost_name) + 4 + 1);
+  AddDefaultExtension(strcpy(filename, ghost_name), ".gst");
 
   ghost_file->fstream = fopen(filename, "rb");
 
   if (ghost_file->fstream == NULL)
-    I_Error("dsda_OpenGhostImport: failed to open %s", myargv[arg_i]);
+    I_Error("dsda_OpenGhostImport: failed to open %s", ghost_name);
 
   fread(&ghost_file->version, sizeof(int), 1, ghost_file->fstream);
   if (ghost_file->version < DSDA_GHOST_MIN_VERSION || ghost_file->version > DSDA_GHOST_VERSION)
-    I_Error("dsda_OpenGhostImport: unsupported ghost version %s", myargv[arg_i]);
+    I_Error("dsda_OpenGhostImport: unsupported ghost version %s", ghost_name);
 
   if (ghost_file->version == 1) ghost_file->count = 1;
   else fread(&ghost_file->count, sizeof(int), 1, ghost_file->fstream);
 
-  free(filename);
+  Z_Free(filename);
 }
 
-int dsda_GhostCount(int arg_i) {
+static int dsda_GhostCount(const char* ghost_name) {
   dsda_ghost_file_t ghost_file;
 
-  dsda_OpenGhostFile(arg_i, &ghost_file);
+  dsda_OpenGhostFile(ghost_name, &ghost_file);
 
   fclose(ghost_file.fstream);
 
   return ghost_file.count;
 }
 
-void dsda_InitGhostImport(int option_i) {
+void dsda_InitGhostImport(const char** ghost_names, int count) {
   int arg_i;
   int ghost_i;
   int i;
@@ -151,15 +150,13 @@ void dsda_InitGhostImport(int option_i) {
 
   ghost_i = 0;
 
-  arg_i = option_i;
-  while (++arg_i != myargc && *myargv[arg_i] != '-')
-    dsda_ghost_import.count += dsda_GhostCount(arg_i);
+  for (arg_i = 0; arg_i < count; ++arg_i)
+    dsda_ghost_import.count += dsda_GhostCount(ghost_names[arg_i]);
 
-  dsda_ghost_import.ghosts = calloc(dsda_ghost_import.count, sizeof(dsda_ghost_t));
+  dsda_ghost_import.ghosts = Z_Calloc(dsda_ghost_import.count, sizeof(dsda_ghost_t));
 
-  arg_i = option_i;
-  while (++arg_i != myargc && *myargv[arg_i] != '-') {
-    dsda_OpenGhostFile(arg_i, &ghost_file);
+  for (arg_i = 0; arg_i < count; ++arg_i) {
+    dsda_OpenGhostFile(ghost_names[arg_i], &ghost_file);
 
     for (i = 0; i < ghost_file.count; ++i) {
       dsda_ghost_import.ghosts[ghost_i].fstream = ghost_file.fstream;
@@ -220,7 +217,7 @@ void dsda_SpawnGhost(void) {
       continue;
     }
 
-    mobj = Z_Malloc(sizeof(*mobj), PU_LEVEL, NULL);
+    mobj = Z_MallocLevel(sizeof(*mobj));
     memset(mobj, 0, sizeof(*mobj));
     mobj->type = MT_NULL;
     mobj->info = &dsda_ghost_info;
@@ -272,7 +269,7 @@ void dsda_SpawnGhost(void) {
   }
 
   if (dsda_ghost_import.count > 0) {
-    dsda_ghost_import.thinker = Z_Malloc(sizeof(thinker_t), PU_LEVEL, NULL);
+    dsda_ghost_import.thinker = Z_MallocLevel(sizeof(*mobj));
     memset(dsda_ghost_import.thinker, 0, sizeof(thinker_t));
     dsda_ghost_import.thinker->function = dsda_UpdateGhosts;
     P_AddThinker(dsda_ghost_import.thinker);

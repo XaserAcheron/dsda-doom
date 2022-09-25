@@ -18,7 +18,9 @@
 #include "hu_lib.h"
 #include "hu_stuff.h"
 
+#include "dsda/command_display.h"
 #include "dsda/global.h"
+#include "dsda/settings.h"
 #include "dsda/split_tracker.h"
 #include "dsda/hud.h"
 
@@ -37,7 +39,7 @@ void dsda_InitIntermissionDisplay(patchnum_t* font) {
     DSDA_INTERMISSION_TIME_Y,
     font,
     HU_FONTSTART,
-    g_cr_gray,
+    CR_GRAY,
     VPT_ALIGN_LEFT
   );
 
@@ -47,7 +49,7 @@ void dsda_InitIntermissionDisplay(patchnum_t* font) {
     DSDA_INTERMISSION_TIME_Y + 8,
     font,
     HU_FONTSTART,
-    g_cr_gray,
+    CR_GRAY,
     VPT_ALIGN_LEFT
   );
 }
@@ -64,7 +66,7 @@ static void dsda_UpdateIntermissionTime(dsda_split_t* split) {
   char color;
 
   delta[0] = '\0';
-  color = 0x30 + g_cr_gray;
+  color = HUlib_Color(CR_GRAY);
 
   if (split && !split->first_time) {
     const char* sign;
@@ -72,13 +74,13 @@ static void dsda_UpdateIntermissionTime(dsda_split_t* split) {
 
     diff = dsda_SplitComparisonDelta(&split->leveltime);
     sign = diff >= 0 ? "+" : "-";
-    color = diff >= 0 ? 0x30 + g_cr_gray : 0x30 + g_cr_green;
+    color = diff >= 0 ? HUlib_Color(CR_GRAY) : HUlib_Color(CR_GREEN);
     diff = abs(diff);
 
     if (diff >= 2100) {
       snprintf(
         delta, sizeof(delta),
-        " (%s%d:%04.2f)",
+        " (%s%d:%05.2f)",
         sign, diff / 35 / 60, (float)(diff % (60 * 35)) / 35
       );
     }
@@ -110,7 +112,7 @@ static void dsda_UpdateIntermissionTotal(dsda_split_t* split) {
   char color;
 
   delta[0] = '\0';
-  color = 0x30 + g_cr_gray;
+  color = HUlib_Color(CR_GRAY);
 
   if (split && !split->first_time) {
     const char* sign;
@@ -118,7 +120,7 @@ static void dsda_UpdateIntermissionTotal(dsda_split_t* split) {
 
     diff = dsda_SplitComparisonDelta(&split->totalleveltimes) / 35;
     sign = diff >= 0 ? "+" : "-";
-    color = diff >= 0 ? 0x30 + g_cr_gray : 0x30 + g_cr_green;
+    color = diff >= 0 ? HUlib_Color(CR_GRAY) : HUlib_Color(CR_GREEN);
     diff = abs(diff);
 
     if (diff >= 60) {
@@ -161,4 +163,6 @@ void dsda_DrawIntermissionDisplay(void) {
 
   HUlib_drawTextLine(&dsda_intermission_time.text, false);
   HUlib_drawTextLine(&dsda_intermission_total.text, false);
+
+  if (dsda_CommandDisplay()) dsda_DrawCommandDisplay();
 }

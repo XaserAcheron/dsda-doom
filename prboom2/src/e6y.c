@@ -40,9 +40,7 @@
 #include <direct.h>
 #include <winreg.h>
 #endif
-#ifdef GL_DOOM
 #include <SDL_opengl.h>
-#endif
 #include <string.h>
 #include <math.h>
 
@@ -66,7 +64,6 @@
 #include "i_sound.h"
 #include "m_menu.h"
 #include "lprintf.h"
-#include "m_argv.h"
 #include "m_misc.h"
 #include "i_system.h"
 #include "p_maputl.h"
@@ -78,80 +75,31 @@
 #include "r_things.h"
 #include "r_sky.h"
 #include "am_map.h"
-#include "hu_tracers.h"
 #include "dsda.h"
 #include "dsda/settings.h"
-#ifdef GL_DOOM
 #include "gl_struct.h"
 #include "gl_intern.h"
-#endif
 #include "g_game.h"
 #include "r_demo.h"
 #include "d_deh.h"
 #include "e6y.h"
 
+#include "dsda/args.h"
 #include "dsda/map_format.h"
+#include "dsda/mapinfo.h"
+#include "dsda/playback.h"
+#include "dsda/skip.h"
+#include "dsda/stretch.h"
 
 dboolean wasWiped = false;
 
 int secretfound;
-int demo_skiptics;
 int demo_playerscount;
 int demo_tics_count;
-int demo_curr_tic;
 char demo_len_st[80];
 
-int avi_shot_time;
-int avi_shot_num;
-const char *avi_shot_fname;
-
-dboolean doSkip;
-dboolean demo_stoponnext;
-dboolean demo_stoponend;
-static dboolean demo_warp_reached;
-
-extern int warpepisode;
-extern int warpmap;
-
-int speed_step;
-
-int hudadd_gamespeed;
-int hudadd_leveltime;
-int hudadd_demotime;
-int hudadd_secretarea;
-int hudadd_maxtotals;
-int hudadd_demoprogressbar;
-int hudadd_crosshair;
-int hudadd_crosshair_scale;
-int hudadd_crosshair_color;
-int hudadd_crosshair_health;
-int hudadd_crosshair_target;
-int hudadd_crosshair_target_color;
-int hudadd_crosshair_lock_target;
-int movement_strafe50;
-int movement_shorttics;
-int movement_strafe50onturns;
-int movement_mouseinvert;
-int movement_maxviewpitch;
-int movement_mousestrafedivisor;
 int mouse_handler;
-int mouse_doubleclick_as_use;
-int mouse_carrytics;
-int render_fov = 90;
-int render_multisampling;
-int render_paperitems;
-int render_wipescreen;
-int mouse_acceleration;
-int demo_overwriteexisting;
-int quickstart_window_ms;
-
-int showendoom;
-
-int palette_ondamage;
-int palette_onbonus;
-int palette_onpowers;
-
-float mouse_accelfactor;
+int gl_render_fov = 90;
 
 camera_t walkcamera;
 
@@ -161,7 +109,6 @@ hu_textline_t  w_precache;
 char hud_add[80];
 char hud_centermsg[80];
 
-int mouseSensitivity_mlook;
 angle_t viewpitch;
 float skyscale;
 float screen_skybox_zplane;
@@ -225,169 +172,60 @@ void e6y_assert(const char *format, ...)
 void ParamsMatchingCheck()
 {
   dboolean recording_attempt =
-    M_CheckParm("-record") ||
-    M_CheckParm("-recordfromto");
+    dsda_Flag(dsda_arg_record) ||
+    dsda_Flag(dsda_arg_recordfromto);
 
   dboolean playbacking_attempt =
-    M_CheckParm("-playdemo") ||
-    M_CheckParm("-timedemo") ||
-    M_CheckParm("-fastdemo");
+    dsda_Flag(dsda_arg_playdemo) ||
+    dsda_Flag(dsda_arg_timedemo) ||
+    dsda_Flag(dsda_arg_fastdemo);
 
   if (recording_attempt && playbacking_attempt)
     I_Error("Params are not matching: Can not being played back and recorded at the same time.");
 }
 
 prboom_comp_t prboom_comp[PC_MAX] = {
-  {0xffffffff, 0x02020615, 0, "-force_monster_avoid_hazards"},
-  {0x00000000, 0x02040601, 0, "-force_remove_slime_trails"},
-  {0x02020200, 0x02040801, 0, "-force_no_dropoff"},
-  {0x00000000, 0x02040801, 0, "-force_truncated_sector_specials"},
-  {0x00000000, 0x02040802, 0, "-force_boom_brainawake"},
-  {0x00000000, 0x02040802, 0, "-force_prboom_friction"},
-  {0x02020500, 0x02040000, 0, "-reject_pad_with_ff"},
-  {0xffffffff, 0x02040802, 0, "-force_lxdoom_demo_compatibility"},
-  {0x00000000, 0x0202061b, 0, "-allow_ssg_direct"},
-  {0x00000000, 0x02040601, 0, "-treat_no_clipping_things_as_not_blocking"},
-  {0x00000000, 0x02040803, 0, "-force_incorrect_processing_of_respawn_frame_entry"},
-  {0x00000000, 0x02040601, 0, "-force_correct_code_for_3_keys_doors_in_mbf"},
-  {0x00000000, 0x02040601, 0, "-uninitialize_crush_field_for_stairs"},
-  {0x00000000, 0x02040802, 0, "-force_boom_findnexthighestfloor"},
-  {0x00000000, 0x02040802, 0, "-allow_sky_transfer_in_boom"},
-  {0x00000000, 0x02040803, 0, "-apply_green_armor_class_to_armor_bonuses"},
-  {0x00000000, 0x02040803, 0, "-apply_blue_armor_class_to_megasphere"},
-  {0x02020200, 0x02050003, 0, "-force_incorrect_bobbing_in_boom"},
-  {0xffffffff, 0x00000000, 0, "-boom_deh_parser"},
-  {0x00000000, 0x02050007, 0, "-mbf_remove_thinker_in_killmobj"},
-  {0x00000000, 0x02050007, 0, "-do_not_inherit_friendlyness_flag_on_spawn"},
-  {0x00000000, 0x02050007, 0, "-do_not_use_misc12_frame_parameters_in_a_mushroom"},
-  {0x00000000, 0x02050102, 0, "-apply_mbf_codepointers_to_any_complevel"},
-  {0x00000000, 0x02050104, 0, "-reset_monsterspawner_params_after_loading"},
+  {0xffffffff, 0x02020615, 0, dsda_arg_force_monster_avoid_hazards},
+  {0x00000000, 0x02040601, 0, dsda_arg_force_remove_slime_trails},
+  {0x02020200, 0x02040801, 0, dsda_arg_force_no_dropoff},
+  {0x00000000, 0x02040801, 0, dsda_arg_force_truncated_sector_specials},
+  {0x00000000, 0x02040802, 0, dsda_arg_force_boom_brainawake},
+  {0x00000000, 0x02040802, 0, dsda_arg_force_prboom_friction},
+  {0x02020500, 0x02040000, 0, dsda_arg_reject_pad_with_ff},
+  {0xffffffff, 0x02040802, 0, dsda_arg_force_lxdoom_demo_compatibility},
+  {0x00000000, 0x0202061b, 0, dsda_arg_allow_ssg_direct},
+  {0x00000000, 0x02040601, 0, dsda_arg_treat_no_clipping_things_as_not_blocking},
+  {0x00000000, 0x02040803, 0, dsda_arg_force_incorrect_processing_of_respawn_frame_entry},
+  {0x00000000, 0x02040601, 0, dsda_arg_force_correct_code_for_3_keys_doors_in_mbf},
+  {0x00000000, 0x02040601, 0, dsda_arg_uninitialize_crush_field_for_stairs},
+  {0x00000000, 0x02040802, 0, dsda_arg_force_boom_findnexthighestfloor},
+  {0x00000000, 0x02040802, 0, dsda_arg_allow_sky_transfer_in_boom},
+  {0x00000000, 0x02040803, 0, dsda_arg_apply_green_armor_class_to_armor_bonuses},
+  {0x00000000, 0x02040803, 0, dsda_arg_apply_blue_armor_class_to_megasphere},
+  {0x02020200, 0x02050003, 0, dsda_arg_force_incorrect_bobbing_in_boom},
+  {0xffffffff, 0x00000000, 0, dsda_arg_boom_deh_parser},
+  {0x00000000, 0x02050007, 0, dsda_arg_mbf_remove_thinker_in_killmobj},
+  {0x00000000, 0x02050007, 0, dsda_arg_do_not_inherit_friendlyness_flag_on_spawn},
+  {0x00000000, 0x02050007, 0, dsda_arg_do_not_use_misc12_frame_parameters_in_a_mushroom},
+  {0x00000000, 0x02050102, 0, dsda_arg_apply_mbf_codepointers_to_any_complevel},
+  {0x00000000, 0x02050104, 0, dsda_arg_reset_monsterspawner_params_after_loading},
 };
 
-void e6y_HandleSkip(void)
+void M_ChangeShorttics(void)
 {
-  int p;
-
-  if ((p = M_CheckParm("-skipsec")) && (p < myargc-1))
-  {
-    float min, sec;
-
-    if (sscanf(myargv[p+1], "%f:%f", &min, &sec) == 2)
-      demo_skiptics = (int) ((60 * min + sec) * TICRATE);
-    else if (sscanf(myargv[p+1], "%f", &sec) == 1)
-      demo_skiptics = (int) (sec * TICRATE);
-  }
-
-  if ((IsDemoPlayback() || IsDemoContinue()) && (warpmap != -1 || demo_skiptics))
-    G_SkipDemoStart();
+  shorttics = dsda_IntConfig(dsda_config_movement_shorttics) || dsda_Flag(dsda_arg_shorttics);
 }
 
 void e6y_InitCommandLine(void)
 {
-  int p;
+  stats_level = dsda_Flag(dsda_arg_levelstat);
 
-  if ((p = M_CheckParm("-avidemo")) && (p < myargc-1))
-    avi_shot_fname = myargv[p + 1];
-
-  stats_level = M_CheckParm("-levelstat");
-
-  if ((stroller = M_CheckParm("-stroller")))
-  {
-    M_AddParam("-turbo");
-    M_AddParam("50");
-  }
+  if ((stroller = dsda_Flag(dsda_arg_stroller)))
+    dsda_UpdateIntArg(dsda_arg_turbo, "50");
 
   dsda_ReadCommandLine();
 
-  // TAS-tracers
-  InitTracers();
-
-  shorttics = movement_shorttics || M_CheckParm("-shorttics");
-}
-
-static dboolean saved_fastdemo;
-static dboolean saved_nodrawers;
-static dboolean saved_nosfxparm;
-static dboolean saved_nomusicparm;
-
-void G_SkipDemoStart(void)
-{
-  saved_fastdemo = fastdemo;
-  saved_nodrawers = nodrawers;
-  saved_nosfxparm = nosfxparm;
-  saved_nomusicparm = nomusicparm;
-
-  paused = false;
-
-  doSkip = true;
-
-  S_StopMusic();
-  fastdemo = true;
-  nodrawers = true;
-  nosfxparm = true;
-  nomusicparm = true;
-
-  I_Init2();
-}
-
-dboolean sound_inited_once = false;
-
-void G_SkipDemoStop(void)
-{
-  fastdemo = saved_fastdemo;
-  nodrawers = saved_nodrawers;
-  nosfxparm = saved_nosfxparm;
-  nomusicparm = saved_nomusicparm;
-
-  demo_stoponnext = false;
-  demo_stoponend = false;
-  demo_warp_reached = false;
-  doSkip = false;
-  demo_skiptics = 0;
-  startmap = 0;
-
-  I_Init2();
-  if (!sound_inited_once && !(nomusicparm && nosfxparm))
-  {
-    I_InitSound();
-  }
-  S_Init(snd_SfxVolume, snd_MusicVolume);
-  S_Stop();
-  S_RestartMusic();
-
-#ifdef GL_DOOM
-  if (V_IsOpenGLMode()) {
-    gld_PreprocessLevel();
-  }
-#endif
-}
-
-void G_SkipDemoStartCheck(void)
-{
-  if (doSkip && warpmap == gamemap && warpepisode == gameepisode)
-    demo_warp_reached = true;
-}
-
-void G_SkipDemoCheck(void)
-{
-  if (doSkip && gametic > 0)
-  {
-    if (
-      (
-        warpmap == -1 &&
-        (
-          demo_skiptics > 0 ?
-            gametic > demo_skiptics :
-            demo_curr_tic - demo_skiptics >= demo_tics_count
-        )
-      ) ||
-      (
-        demo_warp_reached && gametic - levelstarttic > demo_skiptics)
-      )
-     {
-       G_SkipDemoStop();
-     }
-  }
+  M_ChangeShorttics();
 }
 
 int G_ReloadLevel(void)
@@ -403,6 +241,12 @@ int G_ReloadLevel(void)
     result = true;
   }
 
+  if (demoplayback)
+  {
+    dsda_RestartPlayback();
+    result = true;
+  }
+
   dsda_WatchLevelReload(&result);
 
   return result;
@@ -410,99 +254,10 @@ int G_ReloadLevel(void)
 
 int G_GotoNextLevel(void)
 {
-  static byte doom2_next[33] = {
-    2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-    12, 13, 14, 15, 31, 17, 18, 19, 20, 21,
-    22, 23, 24, 25, 26, 27, 28, 29, 30, 1,
-    32, 16, 3
-  };
-  static byte doom_next[4][9] = {
-    {12, 13, 19, 15, 16, 17, 18, 21, 14},
-    {22, 23, 24, 25, 29, 27, 28, 31, 26},
-    {32, 33, 34, 35, 36, 39, 38, 41, 37},
-    {42, 49, 44, 45, 46, 47, 48, 11, 43}
-  };
-  static byte heretic_next[6][9] = {
-    {12, 13, 14, 15, 16, 19, 18, 21, 17},
-    {22, 23, 24, 29, 26, 27, 28, 31, 25},
-    {32, 33, 34, 39, 36, 37, 38, 41, 35},
-    {42, 43, 44, 49, 46, 47, 48, 51, 45},
-    {52, 53, 59, 55, 56, 57, 58, 61, 54},
-    {62, 63, 11, 11, 11, 11, 11, 11, 11}, // E6M4-E6M9 shouldn't be accessible
-  };
-  int epsd;
-  int map = -1;
+  int epsd, map;
   int changed = false;
 
-  if (map_format.mapinfo)
-    map = P_GetMapNextMap(gamemap);
-
-  if (gamemapinfo != NULL)
-  {
-    const char *n = NULL;
-    if (gamemapinfo->nextsecret[0]) n = gamemapinfo->nextsecret;
-    else if (gamemapinfo->nextmap[0]) n = gamemapinfo->nextmap;
-    else if (gamemapinfo->endpic[0] && gamemapinfo->endpic[0] != '-')
-    {
-      epsd = 1;
-      map = 1;
-    }
-    if (n) G_ValidateMapName(n, &epsd, &map);
-  }
-
-  if (map == -1)
-  {
-    // secret level
-    doom2_next[14] = (haswolflevels ? 31 : 16);
-
-    if (bfgedition && singleplayer)
-    {
-      if (gamemission == pack_nerve)
-      {
-        doom2_next[3] = 9;
-        doom2_next[7] = 1;
-        doom2_next[8] = 5;
-      }
-      else
-        doom2_next[1] = 33;
-    }
-
-    if (gamemode == shareware)
-      heretic_next[0][7] = 11;
-
-    if (gamemode == registered)
-      heretic_next[2][7] = 11;
-
-    // shareware doom has only episode 1
-    doom_next[0][7] = (gamemode == shareware ? 11 : 21);
-
-    doom_next[2][7] = ((gamemode == registered) ||
-      // the fourth episode for pre-ultimate complevels is not allowed.
-      (compatibility_level < ultdoom_compatibility) ?
-      11 : 41);
-
-    //doom2_next and doom_next are 0 based, unlike gameepisode and gamemap
-    epsd = gameepisode - 1;
-    map = gamemap - 1;
-
-    if (heretic)
-    {
-      int next = heretic_next[BETWEEN(0, 5, epsd)][BETWEEN(0, 8, map)];
-      epsd = next / 10;
-      map = next % 10;
-    }
-    else if (gamemode == commercial)
-    {
-      epsd = 1;
-      map = doom2_next[BETWEEN(0, 32, map)];
-    }
-    else
-    {
-      int next = doom_next[BETWEEN(0, 3, epsd)][BETWEEN(0, 9, map)];
-      epsd = next / 10;
-      map = next % 10;
-    }
-  }
+  dsda_NextMap(&epsd, &map);
 
   if ((gamestate == GS_LEVEL) &&
     !deathmatch && !netgame &&
@@ -523,20 +278,18 @@ void M_ChangeSpeed(void)
 
 void M_ChangeMouseLook(void)
 {
+  int gl_skymode;
+
   viewpitch = 0;
 
   R_InitSkyMap();
 
-#ifdef GL_DOOM
+  gl_skymode = dsda_IntConfig(dsda_config_gl_skymode);
+
   if (gl_skymode == skytype_auto)
     gl_drawskys = (dsda_MouseLook() ? skytype_skydome : skytype_standard);
   else
     gl_drawskys = gl_skymode;
-#endif // GL_DOOM
-}
-
-void M_ChangeMouseInvert(void)
-{
 }
 
 void M_ChangeMaxViewPitch(void)
@@ -545,13 +298,13 @@ void M_ChangeMaxViewPitch(void)
 
   if (V_IsOpenGLMode())
   {
-    max_up = movement_maxviewpitch;
-    max_dn = movement_maxviewpitch;
+    max_up = 90;
+    max_dn = 90;
   }
   else
   {
-    max_up = MIN(movement_maxviewpitch, 56);
-    max_dn = MIN(movement_maxviewpitch, 32);
+    max_up = 56;
+    max_dn = 32;
   }
 
   angle_up = (int)((float)max_up / 45.0f * ANG45);
@@ -584,89 +337,76 @@ void CheckPitch(signed int *pitch)
   (*pitch) <<= 16;
 }
 
-int render_aspect;
-float render_ratio;
-float render_fovratio;
-float render_fovy = FOV90;
-float render_multiplier;
+float gl_render_ratio;
+float gl_render_fovratio;
+float gl_render_fovy = FOV90;
+float gl_render_multiplier;
 
 void M_ChangeAspectRatio(void)
 {
-  extern int screenblocks;
-
   M_ChangeFOV();
 
-  R_SetViewSize(screenblocks);
+  R_SetViewSize();
 }
 
 void M_ChangeStretch(void)
 {
-  extern int screenblocks;
+  render_stretch_hud = dsda_IntConfig(dsda_config_render_stretch_hud);
 
-  render_stretch_hud = render_stretch_hud_default;
-
-  R_SetViewSize(screenblocks);
+  R_SetViewSize();
 }
 
 void M_ChangeFOV(void)
 {
   float f1, f2;
-  int p;
-  int render_aspect_width, render_aspect_height;
+  dsda_arg_t* arg;
+  int gl_render_aspect_width, gl_render_aspect_height;
 
-  if ((p = M_CheckParm("-aspect")) && (p+1 < myargc) && (strlen(myargv[p+1]) <= 21) &&
-     (2 == sscanf(myargv[p+1], "%dx%d", &render_aspect_width, &render_aspect_height)))
+  arg = dsda_Arg(dsda_arg_aspect);
+  if (
+    arg->found &&
+    sscanf(arg->value.v_string, "%dx%d", &gl_render_aspect_width, &gl_render_aspect_height) == 2
+  )
   {
     SetRatio(SCREENWIDTH, SCREENHEIGHT);
-    render_fovratio = (float)render_aspect_width / (float)render_aspect_height;
-    render_ratio = RMUL * render_fovratio;
-    render_multiplier = 64.0f / render_fovratio / RMUL;
+    gl_render_fovratio = (float)gl_render_aspect_width / (float)gl_render_aspect_height;
+    gl_render_ratio = RMUL * gl_render_fovratio;
+    gl_render_multiplier = 64.0f / gl_render_fovratio / RMUL;
   }
   else
   {
     SetRatio(SCREENWIDTH, SCREENHEIGHT);
-    render_ratio = gl_ratio;
-    render_multiplier = (float)ratio_multiplier;
+    gl_render_ratio = gl_ratio;
+    gl_render_multiplier = (float)ratio_multiplier;
     if (!tallscreen)
     {
-      render_fovratio = 1.6f;
+      gl_render_fovratio = 1.6f;
     }
     else
     {
-      render_fovratio = render_ratio;
+      gl_render_fovratio = gl_render_ratio;
     }
   }
 
-  render_fovy = (float)(2 * RAD2DEG(atan(tan(DEG2RAD(render_fov) / 2) / render_fovratio)));
+  gl_render_fovy = (float)(2 * RAD2DEG(atan(tan(DEG2RAD(gl_render_fov) / 2) / gl_render_fovratio)));
 
-  screen_skybox_zplane = 320.0f/2.0f/(float)tan(DEG2RAD(render_fov/2));
+  screen_skybox_zplane = 320.0f/2.0f/(float)tan(DEG2RAD(gl_render_fov/2));
 
-  f1 = (float)(320.0f / 200.0f * (float)render_fov / (float)FOV90 - 0.2f);
-  f2 = (float)tan(DEG2RAD(render_fovy)/2.0f);
+  f1 = (float)(320.0f / 200.0f * (float)gl_render_fov / (float)FOV90 - 0.2f);
+  f2 = (float)tan(DEG2RAD(gl_render_fovy)/2.0f);
   if (f1-f2<1)
     skyUpAngle = (float)-RAD2DEG(asin(f1-f2));
   else
     skyUpAngle = -90.0f;
 
-  skyUpShift = (float)tan(DEG2RAD(render_fovy)/2.0f);
+  skyUpShift = (float)tan(DEG2RAD(gl_render_fovy)/2.0f);
 
-  skyscale = 1.0f / (float)tan(DEG2RAD(render_fov / 2));
-}
-
-#ifdef GL_DOOM
-void M_ChangeMultiSample(void)
-{
-}
-
-void M_ChangeSpriteClip(void)
-{
-  gl_sprite_offset = (gl_spriteclip != spriteclip_const ? 0 : (.01f * (float)gl_sprite_offset_default));
-  gl_spriteclip_threshold_f = (float)gl_spriteclip_threshold / MAP_COEFF;
+  skyscale = 1.0f / (float)tan(DEG2RAD(gl_render_fov / 2));
 }
 
 void ResolveColormapsHiresConflict(dboolean prefer_colormap)
 {
-  gl_boom_colormaps = !r_have_internal_hires && !gl_texture_external_hires;
+  gl_boom_colormaps = !r_have_internal_hires;
 }
 
 void M_ChangeAllowBoomColormaps(void)
@@ -693,32 +433,9 @@ void M_ChangeTextureUseHires(void)
   gld_Precache();
 }
 
-void M_ChangeTextureHQResize(void)
-{
-  gld_FlushTextures();
-}
-#endif //GL_DOOM
-
-void M_Mouse(int choice, int *sens);
-void M_MouseMLook(int choice)
-{
-  M_Mouse(choice, &mouseSensitivity_mlook);
-}
-
-void M_MouseAccel(int choice)
-{
-  M_Mouse(choice, &mouse_acceleration);
-  MouseAccelChanging();
-}
-
-void MouseAccelChanging(void)
-{
-  mouse_accelfactor = (float)mouse_acceleration/100.0f+1.0f;
-}
-
 float viewPitch;
 
-int StepwiseSum(int value, int direction, int step, int minval, int maxval, int defval)
+int StepwiseSum(int value, int direction, int minval, int maxval, int defval)
 {
   static int prev_value = 0;
   static int prev_direction = 0;
@@ -731,9 +448,6 @@ int StepwiseSum(int value, int direction, int step, int minval, int maxval, int 
 
   direction = (direction > 0 ? 1 : -1);
 
-  if (step != 0)
-    newvalue = (prev_direction * direction < 0 ? prev_value : value + direction * step);
-  else
   {
     int exp = 1;
     while (exp * 10 <= val)
@@ -760,19 +474,11 @@ int StepwiseSum(int value, int direction, int step, int minval, int maxval, int 
 void I_vWarning(const char *message, va_list argList)
 {
   char msg[1024];
-  doom_vsnprintf(msg,sizeof(msg),message,argList);
+  vsnprintf(msg,sizeof(msg),message,argList);
   lprintf(LO_ERROR, "%s\n", msg);
 #ifdef _WIN32
   I_MessageBox(msg, PRB_MB_OK);
 #endif
-}
-
-void I_Warning(const char *message, ...)
-{
-  va_list argptr;
-  va_start(argptr,message);
-  I_vWarning(message, argptr);
-  va_end(argptr);
 }
 
 int I_MessageBox(const char* text, unsigned int type)
@@ -780,7 +486,7 @@ int I_MessageBox(const char* text, unsigned int type)
   int result = PRB_IDCANCEL;
 
 #ifdef _WIN32
-  if (!M_CheckParm("-no_message_box"))
+  if (!dsda_Flag(dsda_arg_no_message_box))
   {
     HWND current_hwnd = GetForegroundWindow();
     result = MessageBox(GetDesktopWindow(), text, PACKAGE_NAME, type|MB_TASKMODAL|MB_TOPMOST);
@@ -802,8 +508,7 @@ void e6y_G_DoCompleted(void)
 {
   int i;
 
-  if (doSkip && (demo_stoponend || demo_warp_reached))
-    G_SkipDemoStop();
+  dsda_EvaluateSkipModeDoCompleted();
 
   if(!stats_level)
     return;
@@ -811,7 +516,7 @@ void e6y_G_DoCompleted(void)
   if (numlevels >= levels_max)
   {
     levels_max = levels_max ? levels_max*2 : 32;
-    stats = realloc(stats,sizeof(*stats)*levels_max);
+    stats = Z_Realloc(stats,sizeof(*stats)*levels_max);
   }
 
   memset(&stats[numlevels], 0, sizeof(timetable_t));
@@ -875,7 +580,7 @@ void e6y_WriteStats(void)
     return;
   }
 
-  all = malloc(sizeof(*all) * numlevels);
+  all = Z_Malloc(sizeof(*all) * numlevels);
   memset(&max, 0, sizeof(timetable_t));
 
   playerscount = 0;
@@ -893,13 +598,13 @@ void e6y_WriteStats(void)
         char strtmp[200];
         strcpy(str, tmp.kill[0] == '\0' ? "%s%d" : "%s+%d");
 
-        doom_snprintf(strtmp, sizeof(strtmp), str, tmp.kill, stats[level].kill[i]);
+        snprintf(strtmp, sizeof(strtmp), str, tmp.kill, stats[level].kill[i]);
         strcpy(tmp.kill, strtmp);
 
-        doom_snprintf(strtmp, sizeof(strtmp), str, tmp.item, stats[level].item[i]);
+        snprintf(strtmp, sizeof(strtmp), str, tmp.item, stats[level].item[i]);
         strcpy(tmp.item, strtmp);
 
-        doom_snprintf(strtmp, sizeof(strtmp), str, tmp.secret, stats[level].secret[i]);
+        snprintf(strtmp, sizeof(strtmp), str, tmp.secret, stats[level].secret[i]);
         strcpy(tmp.secret, strtmp);
       }
     }
@@ -927,7 +632,7 @@ void e6y_WriteStats(void)
   max.stat[TT_TOTALTIME] = max.stat[TT_TOTALTIME]/TICRATE/60;
 
   for(i=0; i<TT_MAX; i++) {
-    doom_snprintf(str, 200, "%d", max.stat[i]);
+    snprintf(str, sizeof(str), "%d", max.stat[i]);
     max.stat[i] = strlen(str);
   }
 
@@ -952,61 +657,29 @@ void e6y_WriteStats(void)
 
   }
 
-  free(all);
+  Z_Free(all);
   fclose(f);
-}
-
-void e6y_G_DoTeleportNewMap(void)
-{
-  if (doSkip)
-  {
-    static int firstmap = 1;
-
-    demo_warp_reached = demo_stoponnext ||
-      (
-        gamemode == commercial ?
-          (warpmap == gamemap) :
-          (warpepisode == gameepisode && warpmap == gamemap)
-      );
-
-    if (demo_warp_reached && demo_skiptics == 0 && !firstmap)
-      G_SkipDemoStop();
-
-    firstmap = 0;
-  }
-}
-
-void e6y_G_DoWorldDone(void)
-{
-  if (doSkip)
-  {
-    static int firstmap = 1;
-
-    demo_warp_reached = demo_stoponnext ||
-      (
-        gamemode == commercial ?
-          (warpmap == gamemap) :
-          (warpepisode == gameepisode && warpmap == gamemap)
-      );
-
-    if (demo_warp_reached && demo_skiptics == 0 && !firstmap)
-      G_SkipDemoStop();
-
-    firstmap = 0;
-  }
 }
 
 //--------------------------------------------------
 
+static double mouse_accelfactor;
+
+void MouseAccelChanging(void)
+{
+  int mouse_acceleration = dsda_IntConfig(dsda_config_mouse_acceleration);
+  mouse_accelfactor = (double) mouse_acceleration / 100.0 + 1.0;
+}
+
 int AccelerateMouse(int val)
 {
-  if (!mouse_acceleration)
+  if (!mouse_accelfactor)
     return val;
 
   if (val < 0)
     return -AccelerateMouse(-val);
 
-  return M_DoubleToInt(pow((double)val, (double)mouse_accelfactor));
+  return M_DoubleToInt(pow((double) val, mouse_accelfactor));
 }
 
 int mlooky = 0;
@@ -1015,17 +688,19 @@ void e6y_G_Compatibility(void)
 {
   deh_applyCompatibility();
 
-  if (IsDemoPlayback())
+  if (dsda_PlaybackName())
   {
-    int i, p;
+    int i;
+    dsda_arg_t* arg;
 
     //"2.4.8.2" -> 0x02040802
-    if ((p = M_CheckParm("-emulate")) && (p < myargc - 1))
+    arg = dsda_Arg(dsda_arg_emulate);
+    if (arg->found)
     {
       unsigned int emulated_version = 0;
       int b[4], k = 1;
       memset(b, 0, sizeof(b));
-      sscanf(myargv[p + 1], "%d.%d.%d.%d", &b[0], &b[1], &b[2], &b[3]);
+      sscanf(arg->value.v_string, "%d.%d.%d.%d", &b[0], &b[1], &b[2], &b[3]);
       for (i = 3; i >= 0; i--, k *= 256)
       {
 #ifdef RANGECHECK
@@ -1045,7 +720,7 @@ void e6y_G_Compatibility(void)
 
     for (i = 0; i < PC_MAX; i++)
     {
-      if (M_CheckParm(prboom_comp[i].cmd))
+      if (dsda_Flag(prboom_comp[i].arg_id))
         prboom_comp[i].state = true;
     }
   }
@@ -1196,15 +871,17 @@ int HU_DrawDemoProgress(int force)
   int len, tics_count, diff;
   unsigned int tick, max_period;
 
-  if (gamestate == GS_DEMOSCREEN || (!demoplayback && !democontinue) || !hudadd_demoprogressbar)
+  if (gamestate == GS_DEMOSCREEN ||
+      !demoplayback ||
+      !dsda_IntConfig(dsda_config_hudadd_demoprogressbar))
     return false;
 
-  tics_count = ((doSkip && demo_skiptics > 0) ? MIN(demo_skiptics, demo_tics_count) : demo_tics_count) * demo_playerscount;
-  len = MIN(SCREENWIDTH, (int)((int_64_t)SCREENWIDTH * demo_curr_tic / tics_count));
+  tics_count = demo_tics_count * demo_playerscount;
+  len = MIN(SCREENWIDTH, (int)((int_64_t)SCREENWIDTH * dsda_PlaybackTics() / tics_count));
 
   if (!force)
   {
-    max_period = ((tics_count - demo_curr_tic > 35 * demo_playerscount) ? 500 : 15);
+    max_period = ((tics_count - dsda_PlaybackTics() > 35 * demo_playerscount) ? 500 : 15);
 
     // Unnecessary updates of progress bar
     // can slow down demo skipping and playback
@@ -1258,49 +935,6 @@ int GetFullPath(const char* FileName, const char* ext, char *Buffer, size_t Buff
   }
 
   return false;
-}
-#endif
-
-#ifdef _WIN32
-#include <Mmsystem.h>
-#ifndef __GNUC__
-#pragma comment( lib, "winmm.lib" )
-#endif
-int mus_extend_volume;
-void I_midiOutSetVolumes(int volume)
-{
-  // NSM changed to work on the 0-15 volume scale,
-  // and to check mus_extend_volume itself.
-
-  MMRESULT result;
-  int calcVolume;
-  MIDIOUTCAPS capabilities;
-  unsigned long long i;
-
-  if (volume > 15)
-    volume = 15;
-  if (volume < 0)
-    volume = 0;
-  calcVolume = (65535 * volume / 15);
-
-  //SDL_LockAudio(); // this function doesn't touch anything the audio callback touches
-
-  //Device loop
-  for (i = 0; i < midiOutGetNumDevs(); i++)
-  {
-    //Get device capabilities
-    result = midiOutGetDevCaps(i, &capabilities, sizeof(capabilities));
-    if (result == MMSYSERR_NOERROR)
-    {
-      //Adjust volume on this candidate
-      if ((capabilities.dwSupport & MIDICAPS_VOLUME))
-      {
-        midiOutSetVolume((HMIDIOUT)i, MAKELONG(calcVolume, calcVolume));
-      }
-    }
-  }
-
-  //SDL_UnlockAudio();
 }
 #endif
 

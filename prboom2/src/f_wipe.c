@@ -43,9 +43,7 @@
 #include "v_video.h"
 #include "m_random.h"
 #include "f_wipe.h"
-#ifdef GL_DOOM
 #include "gl_struct.h"
-#endif
 #include "e6y.h"//e6y
 
 #include "dsda/settings.h"
@@ -71,9 +69,9 @@ static int *y_lookup = NULL;
 // e6y: resolution limitation is removed
 void R_InitMeltRes(void)
 {
-  if (y_lookup) free(y_lookup);
+  if (y_lookup) Z_Free(y_lookup);
 
-  y_lookup = calloc(1, SCREENWIDTH * sizeof(*y_lookup));
+  y_lookup = Z_Calloc(1, SCREENWIDTH * sizeof(*y_lookup));
 }
 
 static int wipe_initMelt(int ticks)
@@ -152,12 +150,10 @@ static int wipe_doMelt(int ticks)
       }
     }
   }
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     gld_wipe_doMelt(ticks, y_lookup);
   }
-#endif
   return done;
 }
 
@@ -165,13 +161,11 @@ static int wipe_doMelt(int ticks)
 
 static int wipe_exitMelt(int ticks)
 {
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     gld_wipe_exitMelt(ticks);
     return 0;
   }
-#endif
 
   V_FreeScreen(&wipe_scr_start);
   wipe_scr_start.width = 0;
@@ -190,13 +184,11 @@ int wipe_StartScreen(void)
   if(dsda_PendingSkipWipe() || wasWiped) return 0;//e6y
   wasWiped = true;//e6y
 
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     gld_wipe_StartScreen();
     return 0;
   }
-#endif
 
   wipe_scr_start.width = SCREENWIDTH;
   wipe_scr_start.height = SCREENHEIGHT;
@@ -209,7 +201,7 @@ int wipe_StartScreen(void)
   wipe_scr_start.not_on_heap = false;
   V_AllocScreen(&wipe_scr_start);
   screens[SRC_SCR] = wipe_scr_start;
-  V_CopyRect(0, SRC_SCR, 0, 0, SCREENWIDTH, SCREENHEIGHT, VPT_NONE); // Copy start screen to buffer
+  V_CopyScreen(0, SRC_SCR); // Copy start screen to buffer
   return 0;
 }
 
@@ -218,13 +210,11 @@ int wipe_EndScreen(void)
   if(dsda_PendingSkipWipe() || !wasWiped) return 0;//e6y
   wasWiped = false;//e6y
 
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     gld_wipe_EndScreen();
     return 0;
   }
-#endif
 
   wipe_scr_end.width = SCREENWIDTH;
   wipe_scr_end.height = SCREENHEIGHT;
@@ -237,8 +227,8 @@ int wipe_EndScreen(void)
   wipe_scr_end.not_on_heap = false;
   V_AllocScreen(&wipe_scr_end);
   screens[DEST_SCR] = wipe_scr_end;
-  V_CopyRect(0, DEST_SCR, 0, 0, SCREENWIDTH, SCREENHEIGHT, VPT_NONE); // Copy end screen to buffer
-  V_CopyRect(SRC_SCR, 0, 0, 0, SCREENWIDTH, SCREENHEIGHT, VPT_NONE); // restore start screen
+  V_CopyScreen(0, DEST_SCR); // Copy end screen to buffer
+  V_CopyScreen(SRC_SCR, 0); // restore start screen
   return 0;
 }
 
@@ -246,18 +236,22 @@ int wipe_EndScreen(void)
 int wipe_ScreenWipe(int ticks)
 {
   static dboolean go;                               // when zero, stop the wipe
-  if(!render_wipescreen) return 0;//e6y
+
+  if (!dsda_RenderWipeScreen())
+    return 0;//e6y
+
   if (!go)                                         // initial stuff
-    {
-      go = 1;
-      wipe_scr = screens[0];
-      wipe_initMelt(ticks);
-    }
+  {
+    go = 1;
+    wipe_scr = screens[0];
+    wipe_initMelt(ticks);
+  }
+
   // do a piece of wipe-in
   if (wipe_doMelt(ticks))     // final stuff
-    {
-      wipe_exitMelt(ticks);
-      go = 0;
-    }
+  {
+    wipe_exitMelt(ticks);
+    go = 0;
+  }
   return !go;
 }

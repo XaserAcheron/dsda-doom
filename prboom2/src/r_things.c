@@ -44,6 +44,8 @@
 #include "lprintf.h"
 #include "e6y.h"//e6y
 
+#include "dsda/configuration.h"
+#include "dsda/render_stats.h"
 #include "dsda/settings.h"
 
 #define BASEYCENTER 100
@@ -70,14 +72,6 @@ static const lighttable_t **spritelights;        // killough 1/25/98 made static
 //e6y: added for GL
 float pspriteyscale_f;
 float pspritexscale_f;
-
-int sprites_doom_order;
-
-int health_bar;
-int health_bar_full_length;
-int health_bar_red;
-int health_bar_yellow;
-int health_bar_green;
 
 typedef struct drawseg_xrange_item_s
 {
@@ -120,17 +114,17 @@ static int maxframe;
 
 void R_InitSpritesRes(void)
 {
-  if (xtoviewangle) free(xtoviewangle);
-  if (negonearray) free(negonearray);
-  if (screenheightarray) free(screenheightarray);
+  if (xtoviewangle) Z_Free(xtoviewangle);
+  if (negonearray) Z_Free(negonearray);
+  if (screenheightarray) Z_Free(screenheightarray);
 
-  xtoviewangle = calloc(1, (SCREENWIDTH + 1) * sizeof(*xtoviewangle));
-  negonearray = calloc(1, SCREENWIDTH * sizeof(*negonearray));
-  screenheightarray = calloc(1, SCREENWIDTH * sizeof(*screenheightarray));
+  xtoviewangle = Z_Calloc(1, (SCREENWIDTH + 1) * sizeof(*xtoviewangle));
+  negonearray = Z_Calloc(1, SCREENWIDTH * sizeof(*negonearray));
+  screenheightarray = Z_Calloc(1, SCREENWIDTH * sizeof(*screenheightarray));
 
-  if (clipbot) free(clipbot);
+  if (clipbot) Z_Free(clipbot);
 
-  clipbot = calloc(1, 2 * SCREENWIDTH * sizeof(*clipbot));
+  clipbot = Z_Calloc(1, 2 * SCREENWIDTH * sizeof(*clipbot));
   cliptop = clipbot + SCREENWIDTH;
 }
 
@@ -236,12 +230,12 @@ static void R_InitSpriteDefs(const char * const * namelist)
   if (!numentries || !*namelist)
     return;
 
-  sprites = Z_Calloc(num_sprites, sizeof(*sprites), PU_STATIC, NULL);
+  sprites = Z_Calloc(num_sprites, sizeof(*sprites));
 
   // Create hash table based on just the first four letters of each sprite
   // killough 1/31/98
 
-  hash = malloc(sizeof(*hash)*numentries); // allocate hash table
+  hash = Z_Malloc(sizeof(*hash)*numentries); // allocate hash table
 
   for (i=0; (size_t)i<numentries; i++)             // initialize hash table as empty
     hash[i].index = -1;
@@ -374,13 +368,13 @@ static void R_InitSpriteDefs(const char * const * namelist)
 
               // allocate space for the frames present and copy sprtemp to it
               sprites[i].spriteframes =
-                Z_Malloc (maxframe * sizeof(spriteframe_t), PU_STATIC, NULL);
+                Z_Malloc (maxframe * sizeof(spriteframe_t));
               memcpy (sprites[i].spriteframes, sprtemp,
                       maxframe*sizeof(spriteframe_t));
             }
         }
     }
-  free(hash);             // free hash table
+  Z_Free(hash);             // free hash table
 }
 
 //
@@ -424,7 +418,7 @@ static vissprite_t *R_NewVisSprite(void)
       size_t num_vissprite_alloc_prev = num_vissprite_alloc;
 
       num_vissprite_alloc = num_vissprite_alloc ? num_vissprite_alloc*2 : 128;
-      vissprites = realloc(vissprites,num_vissprite_alloc*sizeof(*vissprites));
+      vissprites = Z_Realloc(vissprites,num_vissprite_alloc*sizeof(*vissprites));
 
       //e6y: set all fields to zero
       memset(vissprites + num_vissprite_alloc_prev, 0,
@@ -480,7 +474,7 @@ void R_DrawMaskedColumn(
         dcvars->yh = dcvars->baseclip;
 
       // killough 3/2/98, 3/27/98: Failsafe against overflow/crash:
-      if (dcvars->yl <= dcvars->yh && dcvars->yh < viewheight)
+      if (dcvars->yl >= 0 && dcvars->yl <= dcvars->yh && dcvars->yh < viewheight)
         {
           dcvars->source = column->pixels + post->topdelta;
           dcvars->prevsource = prevcolumn->pixels + post->topdelta;
@@ -515,22 +509,11 @@ static void R_DrawVisSprite(vissprite_t *vis)
 {
   int      texturecolumn;
   fixed_t  frac;
-  const rpatch_t *patch = R_CachePatchNum(vis->patch+firstspritelump);
+  const rpatch_t *patch = R_PatchByNum(vis->patch+firstspritelump);
   R_DrawColumn_f colfunc;
   draw_column_vars_t dcvars;
-  enum draw_filter_type_e filter;
-  enum draw_filter_type_e filterz;
 
   R_SetDefaultDrawColumnVars(&dcvars);
-  if (vis->mobjflags & MF_PLAYERSPRITE) {
-    dcvars.edgetype = drawvars.patch_edges;
-    filter = drawvars.filterpatch;
-    filterz = RDRAW_FILTER_POINT;
-  } else {
-    dcvars.edgetype = drawvars.sprite_edges;
-    filter = drawvars.filtersprite;
-    filterz = drawvars.filterz;
-  }
 
   dcvars.colormap = vis->colormap;
   dcvars.nextcolormap = dcvars.colormap; // for filtering -- POPE
@@ -568,35 +551,33 @@ static void R_DrawVisSprite(vissprite_t *vis)
 
   if (!dcvars.colormap)   // NULL colormap = shadow draw
   {
-    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_FUZZ, filter, filterz);    // killough 3/14/98
+    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_FUZZ, RDRAW_FILTER_POINT);    // killough 3/14/98
   }
   else if (vis->color)
   {
-    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLATED, filter, filterz);
+    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLATED, RDRAW_FILTER_POINT);
     dcvars.translation = colrngs[vis->color];
   }
   else if (vis->mobjflags & MF_TRANSLATION)
   {
-    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLATED, filter, filterz);
+    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLATED, RDRAW_FILTER_POINT);
     dcvars.translation = translationtables - 256 +
       ((vis->mobjflags & MF_TRANSLATION) >> (MF_TRANSSHIFT-8) );
   }
   else if (vis->mobjflags & g_mf_translucent) // phares
   {
-    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLUCENT, filter, filterz);
+    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_TRANSLUCENT, RDRAW_FILTER_POINT);
     tranmap = main_tranmap;       // killough 4/11/98
   }
   else
   {
-    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, filter, filterz); // killough 3/14/98, 4/11/98
+    colfunc = R_GetDrawColumnFunc(RDC_PIPELINE_STANDARD, RDRAW_FILTER_POINT); // killough 3/14/98, 4/11/98
   }
 
 // proff 11/06/98: Changed for high-res
   dcvars.iscale = FixedDiv (FRACUNIT, vis->scale);
   dcvars.texturemid = vis->texturemid;
   frac = vis->startfrac;
-  if (filter == RDRAW_FILTER_LINEAR)
-    frac -= (FRACUNIT>>1);
   spryscale = vis->scale;
   sprtopscreen = centeryfrac - FixedMul(dcvars.texturemid,spryscale);
 
@@ -629,23 +610,22 @@ static void R_DrawVisSprite(vissprite_t *vis)
         R_GetPatchColumnClamped(patch, texturecolumn+1)
       );
     }
-  R_UnlockPatchNum(vis->patch+firstspritelump); // cph - release lump
 }
 
 int r_near_clip_plane = MINZ;
 
 void R_SetClipPlanes(void)
 {
+  extern int gl_render_paperitems;
+
   // thing is behind view plane?
-#ifdef GL_DOOM
   if ((V_IsOpenGLMode()) &&
-      (HaveMouseLook() || (render_fov > FOV90)) &&
-      (!render_paperitems || simple_shadows.loaded))
+      (HaveMouseLook() || (gl_render_fov > FOV90)) &&
+      (!gl_render_paperitems || simple_shadows.loaded))
   {
     r_near_clip_plane = -(FRACUNIT * MAX(64, simple_shadows.max_radius));
   }
   else
-#endif
   {
     r_near_clip_plane = MINZ;
   }
@@ -686,15 +666,13 @@ static void R_ProjectSprite (mobj_t* thing, int lightlevel)
     return;
   }
 
-#ifdef GL_DOOM
   if (V_IsOpenGLMode())
   {
     gld_ProjectSprite(thing, lightlevel);
     return;
   }
-#endif
 
-  if (interpolate_view)
+  if (R_ViewInterpolation())
   {
     fx = thing->PrevX + FixedMul (tic_vars.frac, thing->x - thing->PrevX);
     fy = thing->PrevY + FixedMul (tic_vars.frac, thing->y - thing->PrevY);
@@ -774,7 +752,7 @@ static void R_ProjectSprite (mobj_t* thing, int lightlevel)
     }
 
   {
-    const rpatch_t* patch = R_CachePatchNum(lump+firstspritelump);
+    const rpatch_t* patch = R_PatchByNum(lump+firstspritelump);
     thing->patch_width = patch->width;
 
     /* calculate edges of the shape
@@ -793,7 +771,6 @@ static void R_ProjectSprite (mobj_t* thing, int lightlevel)
     gzt = fz + (patch->topoffset << FRACBITS);
     gzb = gzt - (patch->height << FRACBITS);
     width = patch->width;
-    R_UnlockPatchNum(lump+firstspritelump);
   }
 
   // off the side?
@@ -939,10 +916,9 @@ void R_AddSprites(subsector_t* subsec, int lightlevel)
 
   // Handle all things in sector.
 
-#ifdef GL_DOOM
-  if (show_alive)
+  if (dsda_ShowAliveMonsters())
   {
-    if (show_alive == 1)
+    if (dsda_ShowAliveMonsters() == 1)
     {
       for (thing = sec->thinglist; thing; thing = thing->snext)
       {
@@ -952,7 +928,6 @@ void R_AddSprites(subsector_t* subsec, int lightlevel)
     }
   }
   else
-#endif
   {
     for (thing = sec->thinglist; thing; thing = thing->snext)
     {
@@ -1072,6 +1047,7 @@ static void R_DrawPSprite (pspdef_t *psp)
   {
     weaponinfo_t *winfo;
     int state;
+    int weapon_attack_alignment;
 
     if (hexen)
     {
@@ -1083,6 +1059,7 @@ static void R_DrawPSprite (pspdef_t *psp)
     }
 
     state = viewplayer->psprites[ps_weapon].state - states;
+    weapon_attack_alignment = dsda_IntConfig(dsda_config_weapon_attack_alignment);
 
     if (!dsda_WeaponBob())
     {
@@ -1101,7 +1078,7 @@ static void R_DrawPSprite (pspdef_t *psp)
         psp_sy -= (last_sy - 32 * FRACUNIT);
       }
     }
-    else if (dsda_WeaponAttackAlignment() && viewplayer->attackdown && !psp->state->misc1)
+    else if (weapon_attack_alignment && viewplayer->attackdown && !psp->state->misc1)
     { // [crispy] center the weapon sprite horizontally and vertically
       R_ApplyWeaponBob(&psp_sx, weapon_attack_alignment == CENTERWEAPON_BOB, NULL, false);
 
@@ -1115,7 +1092,7 @@ static void R_DrawPSprite (pspdef_t *psp)
   }
 
   {
-    const rpatch_t* patch = R_CachePatchNum(lump+firstspritelump);
+    const rpatch_t* patch = R_PatchByNum(lump+firstspritelump);
     // calculate edges of the shape
     fixed_t       tx;
     tx = psp_sx-160*FRACUNIT;
@@ -1128,7 +1105,6 @@ static void R_DrawPSprite (pspdef_t *psp)
 
     width = patch->width;
     topoffset = patch->topoffset<<FRACBITS;
-    R_UnlockPatchNum(lump+firstspritelump);
   }
 
   // off the side
@@ -1144,7 +1120,7 @@ static void R_DrawPSprite (pspdef_t *psp)
   vis->texturemid = (BASEYCENTER<<FRACBITS) /* +  FRACUNIT/2 */ -
                     (psp_sy-topoffset);
 
-  if (viewheight == SCREENHEIGHT && raven)
+  if (R_FullView() && raven)
   {
     vis->texturemid -= PSpriteSY[viewplayer->pclass][players[consoleplayer].readyweapon];
   }
@@ -1257,7 +1233,6 @@ static void R_DrawPSprite (pspdef_t *psp)
   {
     R_DrawVisSprite(vis);
   }
-#ifdef GL_DOOM
   else
   {
     int lightlevel;
@@ -1282,7 +1257,6 @@ static void R_DrawPSprite (pspdef_t *psp)
     }
     gld_DrawWeapon(lump,vis,lightlevel);
   }
-#endif
 }
 
 //
@@ -1379,21 +1353,13 @@ void R_SortVisSprites (void)
 
       if (num_vissprite_ptrs < num_vissprite*2)
         {
-          free(vissprite_ptrs);  // better than realloc -- no preserving needed
-          vissprite_ptrs = malloc((num_vissprite_ptrs = num_vissprite_alloc*2)
+          Z_Free(vissprite_ptrs);  // better than realloc -- no preserving needed
+          vissprite_ptrs = Z_Malloc((num_vissprite_ptrs = num_vissprite_alloc*2)
                                   * sizeof *vissprite_ptrs);
         }
 
-      if (sprites_doom_order)
-      {
-        while (--i>=0)
-          vissprite_ptrs[num_vissprite-i-1] = vissprites+i;
-      }
-      else
-      {
-        while (--i>=0)
-          vissprite_ptrs[i] = vissprites+i;
-      }
+      while (--i>=0)
+        vissprite_ptrs[num_vissprite-i-1] = vissprites+i;
 
       // killough 9/22/98: replace qsort with merge sort, since the keys
       // are roughly in order to begin with, due to BSP rendering.
@@ -1566,7 +1532,7 @@ void R_DrawMasked(void)
       drawsegs_xrange_size = 2 * maxdrawsegs;
       for(i = 0; i < DS_RANGES_COUNT; i++)
       {
-        drawsegs_xranges[i].items = realloc(
+        drawsegs_xranges[i].items = Z_Realloc(
           drawsegs_xranges[i].items,
           drawsegs_xrange_size * sizeof(drawsegs_xranges[i].items[0]));
       }
@@ -1600,7 +1566,8 @@ void R_DrawMasked(void)
 
   // draw all vissprites back to front
 
-  rendered_vissprites = num_vissprite;
+  dsda_RecordVisSprites(num_vissprite);
+
   for (i = num_vissprite ;--i>=0; )
   {
     vissprite_t* spr = vissprite_ptrs[i];
@@ -1637,7 +1604,5 @@ void R_DrawMasked(void)
       R_RenderMaskedSegRange(ds, ds->x1, ds->x2);
 
   // draw the psprites on top of everything
-  //  but does not draw on side views
-  if (!viewangleoffset && !viewpitchoffset)
-    R_DrawPlayerSprites ();
+  R_DrawPlayerSprites ();
 }

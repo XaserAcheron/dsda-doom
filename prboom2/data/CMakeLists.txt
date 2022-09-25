@@ -42,6 +42,10 @@ set(LUMPS
     lumps/crblack.lmp
     lumps/crpurple.lmp
     lumps/crwhite.lmp
+    lumps/crheresy.lmp
+    lumps/crhexen.lmp
+    lumps/soundfont/sndfont.lmp
+    lumps/dsdahud.lmp
 )
 
 set(COLORMAPS
@@ -63,7 +67,6 @@ set(TABLES
     lumps/glfp_isk.lmp
     lumps/glvp.lmp
     lumps/glvp_isk.lmp
-    lumps/-prbhud-.lmp
     lumps/m_ammo.lmp
     lumps/m_armour.lmp
     lumps/m_arrow.lmp
@@ -179,11 +182,6 @@ set(GRAPHICS
     graphics/dig124.ppm
     graphics/dig125.ppm
     graphics/dig126.ppm
-    graphics/stbr123.ppm
-    graphics/stbr124.ppm
-    graphics/stbr125.ppm
-    graphics/stbr126.ppm
-    graphics/stbr127.ppm
     graphics/boxul.ppm
     graphics/boxuc.ppm
     graphics/boxur.ppm
@@ -427,4 +425,4 @@ add_custom_command(
     DEPENDS rdatawad ${WAD_SRC}
 )
 add_custom_target(dsda-doom-wad DEPENDS ${WAD_DATA_PATH})
-install(FILES ${WAD_DATA_PATH} DESTINATION ${DOOMWADDIR} COMPONENT "PrBoom-Plus internal WAD")
+install(FILES ${WAD_DATA_PATH} DESTINATION ${DSDAPWADDIR} COMPONENT "DSDA-Doom internal WAD")

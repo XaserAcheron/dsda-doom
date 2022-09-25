@@ -19,24 +19,23 @@
 #include "hu_lib.h"
 #include "hu_stuff.h"
 #include "doomstat.h"
+#include "r_main.h"
 
 #include "dsda.h"
+#include "dsda/build.h"
 #include "dsda/global.h"
 #include "dsda/settings.h"
 #include "dsda/exhud.h"
 #include "dsda/command_display.h"
 #include "dsda/coordinate_display.h"
 #include "dsda/intermission_display.h"
+#include "dsda/line_display.h"
+
 #include "hud.h"
 
 #define DSDA_TEXT_X 2
 #define DSDA_SPLIT_Y 12
-#define DSDA_SPLIT_LIFETIME 105
 #define DSDA_SPLIT_SIZE 80
-
-// hook into screen settings
-extern int SCREENHEIGHT;
-extern int viewheight;
 
 typedef struct {
   hu_textline_t text;
@@ -76,32 +75,31 @@ void dsda_InitHud(patchnum_t* font) {
     DSDA_SPLIT_Y,
     font,
     HU_FONTSTART,
-    g_cr_gray,
+    CR_GRAY,
     VPT_ALIGN_LEFT
   );
 
   dsda_InitIntermissionDisplay(font);
-  dsda_InitExHud(font);
+  dsda_InitExHud();
   dsda_InitCommandDisplay(font);
   dsda_InitCoordinateDisplay(font);
+  dsda_InitLineDisplay(font);
 }
 
 static dboolean dsda_ExHudVisible(void) {
-  return dsda_ExHud() && // extended hud turned on
-         viewheight != SCREENHEIGHT && // not zoomed in
-         (!(automapmode & am_active) || (automapmode & am_overlay)); // automap inactive
+  return dsda_ExHud() && automap_off;
 }
 
 static dboolean dsda_CommandDisplayVisible(void) {
-  return dsda_CommandDisplay() && // command display turned on
-         viewheight != SCREENHEIGHT && // not zoomed in
-         (!(automapmode & am_active) || (automapmode & am_overlay)); // automap inactive
+  return (dsda_CommandDisplay() || dsda_BuildMode()) && // command display turned on
+         R_PartialView() && // not zoomed in
+         automap_off;
 }
 
 static dboolean dsda_CoordinateDisplayVisible(void) {
   return dsda_CoordinateDisplay() && // command display turned on
-         viewheight != SCREENHEIGHT && // not zoomed in
-         (!(automapmode & am_active) || (automapmode & am_overlay)); // automap inactive
+         R_PartialView() && // not zoomed in
+         automap_off;
 }
 
 void dsda_UpdateHud(void) {
@@ -115,6 +113,7 @@ void dsda_UpdateHud(void) {
 
   if (dsda_ExHudVisible()) dsda_UpdateExHud();
   if (dsda_CoordinateDisplayVisible()) dsda_UpdateCoordinateDisplay();
+  if (dsda_CoordinateDisplayVisible()) dsda_UpdateLineDisplay();
 }
 
 void dsda_DrawHud(void) {
@@ -123,6 +122,7 @@ void dsda_DrawHud(void) {
   if (dsda_ExHudVisible()) dsda_DrawExHud();
   if (dsda_CommandDisplayVisible()) dsda_DrawCommandDisplay();
   if (dsda_CoordinateDisplayVisible()) dsda_DrawCoordinateDisplay();
+  if (dsda_CoordinateDisplayVisible()) dsda_DrawLineDisplay();
 }
 
 void dsda_EraseHud(void) {
@@ -131,9 +131,10 @@ void dsda_EraseHud(void) {
   dsda_EraseExHud();
   dsda_EraseCommandDisplay();
   dsda_EraseCoordinateDisplay();
+  dsda_EraseLineDisplay();
 }
 
-void dsda_AddSplit(dsda_split_class_t split_class) {
+void dsda_AddSplit(dsda_split_class_t split_class, int lifetime) {
   int minutes;
   float seconds;
   char* s;
@@ -148,7 +149,7 @@ void dsda_AddSplit(dsda_split_class_t split_class) {
 
   split_state->delay = split_state->default_delay;
 
-  dsda_split.ticks = DSDA_SPLIT_LIFETIME;
+  dsda_split.ticks = lifetime;
 
   // to match the timer, we use the leveltime value at the end of the frame
   minutes = (leveltime + 1) / 35 / 60;

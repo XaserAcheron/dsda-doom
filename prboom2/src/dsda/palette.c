@@ -57,7 +57,7 @@ void dsda_CyclePlayPal(void) {
       return;
 
     lump_num = W_CheckNumForName(playpal_data[cycle_playpal_index].lump_name);
-  } while (lump_num < 0);
+  } while (lump_num == LUMP_NOT_FOUND);
 
   V_SetPlayPal(cycle_playpal_index);
 }
@@ -74,7 +74,7 @@ void dsda_FreePlayPal(void) {
 
   for (playpal_i = 0; playpal_i < NUMPALETTES; ++playpal_i)
     if (playpal_data[playpal_i].lump) {
-      free(playpal_data[playpal_i].lump);
+      Z_Free(playpal_data[playpal_i].lump);
       playpal_data[playpal_i].lump = NULL;
     }
 }
@@ -90,10 +90,10 @@ void dsda_InitPlayPal(void) {
       int i, j, found = 0;
 
       lump = W_CheckNumForName(playpal_data[playpal_i].lump_name);
-      if (lump < 0)
+      if (lump == LUMP_NOT_FOUND)
         continue;
 
-      playpal = W_CacheLumpNum(lump);
+      playpal = W_LumpByNum(lump);
 
       // find two duplicate palette entries. use one for transparency.
       // rewrite source pixels in patches to the other on composition.
@@ -122,8 +122,6 @@ void dsda_InitPlayPal(void) {
         playpal_data[playpal_i].transparent = 255;
         playpal_data[playpal_i].duplicate   = -1;
       }
-
-      W_UnlockLumpNum(lump);
     }
   }
 }

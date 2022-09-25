@@ -13,10 +13,18 @@ set(COMMON_SRC
     dsda.h
     dsda/analysis.c
     dsda/analysis.h
+    dsda/args.c
+    dsda/args.h
+    dsda/brute_force.c
+    dsda/brute_force.h
+    dsda/build.c
+    dsda/build.h
     dsda/command_display.c
     dsda/command_display.h
     dsda/compatibility.c
     dsda/compatibility.h
+    dsda/configuration.c
+    dsda/configuration.h
     dsda/console.c
     dsda/console.h
     dsda/coordinate_display.c
@@ -31,21 +39,80 @@ set(COMMON_SRC
     dsda/excmd.h
     dsda/exhud.c
     dsda/exhud.h
+    dsda/features.c
+    dsda/features.h
     dsda/ghost.c
     dsda/ghost.h
+    dsda/gl/render_scale.c
+    dsda/gl/render_scale.h
     dsda/global.c
     dsda/global.h
     dsda/hud.c
     dsda/hud.h
+    dsda/hud_components.h
+    dsda/hud_components/ammo_text.c
+    dsda/hud_components/ammo_text.h
+    dsda/hud_components/armor_text.c
+    dsda/hud_components/armor_text.h
+    dsda/hud_components/base.c
+    dsda/hud_components/base.h
+    dsda/hud_components/big_ammo.c
+    dsda/hud_components/big_ammo.h
+    dsda/hud_components/big_armor.c
+    dsda/hud_components/big_armor.h
+    dsda/hud_components/big_health.c
+    dsda/hud_components/big_health.h
+    dsda/hud_components/composite_time.c
+    dsda/hud_components/composite_time.h
+    dsda/hud_components/fps.c
+    dsda/hud_components/fps.h
+    dsda/hud_components/health_text.c
+    dsda/hud_components/health_text.h
+    dsda/hud_components/keys.c
+    dsda/hud_components/keys.h
+    dsda/hud_components/line_distance_tracker.c
+    dsda/hud_components/line_distance_tracker.h
+    dsda/hud_components/line_tracker.c
+    dsda/hud_components/line_tracker.h
+    dsda/hud_components/mobj_tracker.c
+    dsda/hud_components/mobj_tracker.h
+    dsda/hud_components/null.c
+    dsda/hud_components/null.h
+    dsda/hud_components/player_tracker.c
+    dsda/hud_components/player_tracker.h
+    dsda/hud_components/ready_ammo_text.c
+    dsda/hud_components/ready_ammo_text.h
+    dsda/hud_components/render_stats.c
+    dsda/hud_components/render_stats.h
+    dsda/hud_components/sector_tracker.c
+    dsda/hud_components/sector_tracker.h
+    dsda/hud_components/speed_text.c
+    dsda/hud_components/speed_text.h
+    dsda/hud_components/stat_totals.c
+    dsda/hud_components/stat_totals.h
+    dsda/hud_components/tracker.c
+    dsda/hud_components/tracker.h
+    dsda/hud_components/weapon_text.c
+    dsda/hud_components/weapon_text.h
     dsda/input.c
     dsda/input.h
     dsda/intermission_display.c
     dsda/intermission_display.h
     dsda/key_frame.c
     dsda/key_frame.h
+    dsda/line_display.c
+    dsda/line_display.h
     dsda/line_special.h
     dsda/map_format.c
     dsda/map_format.h
+    dsda/mapinfo.c
+    dsda/mapinfo.h
+    dsda/mapinfo/hexen.c
+    dsda/mapinfo/hexen.h
+    dsda/mapinfo/legacy.c
+    dsda/mapinfo/legacy.h
+    dsda/mapinfo/u.c
+    dsda/mapinfo/u.h
     dsda/memory.c
     dsda/memory.h
     dsda/mobjinfo.c
@@ -60,14 +127,24 @@ set(COMMON_SRC
     dsda/options.h
     dsda/palette.c
     dsda/palette.h
+    dsda/pause.c
+    dsda/pause.h
     dsda/pclass.c
     dsda/pclass.h
+    dsda/playback.c
+    dsda/playback.h
+    dsda/render_stats.c
+    dsda/render_stats.h
     dsda/save.c
     dsda/save.h
     dsda/settings.c
     dsda/settings.h
     dsda/sfx.c
     dsda/sfx.h
+    dsda/skip.c
+    dsda/skip.h
+    dsda/sndinfo.c
+    dsda/sndinfo.h
     dsda/spawn_number.c
     dsda/spawn_number.h
     dsda/split_tracker.c
@@ -76,14 +153,18 @@ set(COMMON_SRC
     dsda/sprite.h
     dsda/state.c
     dsda/state.h
-    dsda/tas.c
-    dsda/tas.h
+    dsda/stretch.c
+    dsda/stretch.h
     dsda/text_file.c
     dsda/text_file.h
     dsda/thing_id.c
     dsda/thing_id.h
     dsda/time.c
     dsda/time.h
+    dsda/tracker.c
+    dsda/tracker.h
+    dsda/utility.c
+    dsda/utility.h
     dstrings.c
     dstrings.h
     d_deh.c
@@ -102,7 +183,6 @@ set(COMMON_SRC
     e6y.h
     f_finale.c
     f_finale.h
-    f_finale2.c
     f_wipe.c
     f_wipe.h
     g_game.c
@@ -149,8 +229,6 @@ set(COMMON_SRC
     hu_lib.h
     hu_stuff.c
     hu_stuff.h
-    hu_tracers.c
-    hu_tracers.h
     info.c
     info.h
     i_capture.c
@@ -305,16 +383,6 @@ set(PCSOUND_SOURCES
     PCSOUND/pcsound_win32.c
 )
 
-set(TEXTSCREEN_SOURCES
-    TEXTSCREEN/doomkeys.h
-    TEXTSCREEN/txt_main.h
-    TEXTSCREEN/txt_font.h
-    TEXTSCREEN/txt_largefont.h
-    TEXTSCREEN/txt_sdl.c
-    TEXTSCREEN/txt_sdl.h
-    TEXTSCREEN/txt_smallfont.h
-)
-
 set(DOOMMUSIC_SOURCES
     MUSIC/dbopl.c
     MUSIC/dbopl.h
@@ -343,7 +411,6 @@ set(EXTRA_FILES
     r_drawcolpipeline.inl
     r_drawcolumn.inl
     r_drawflush.inl
-    r_drawspan.inl
 )
 
 set(PRBOOM_PLUS_SOURCES
@@ -353,47 +420,41 @@ set(PRBOOM_PLUS_SOURCES
     ${MUS2MID_SRC}
     ${SDLDOOM_SOURCES}
     ${PCSOUND_SOURCES}
-    ${TEXTSCREEN_SOURCES}
     ${DOOMMUSIC_SOURCES}
     ${EXTRA_FILES}
 )
 
 function(AddGameExecutable TARGET SOURCES)
-    if(OPENGL_FOUND AND OPENGL_GLU_FOUND)
-        set(SOURCES
-            ${SOURCES}
-            gl_clipper.c
-            gl_detail.c
-            gl_drawinfo.c
-            gl_fbo.c
-            gl_gamma.c
-            gl_hires.c
-            gl_hqresize.c
-            gl_intern.h
-            gl_light.c
-            gl_main.c
-            gl_map.c
-            gl_missingtexture.c
-            gl_opengl.c
-            gl_opengl.h
-            gl_preprocess.c
-            gl_shader.c
-            gl_shadow.c
-            gl_sky.c
-            gl_struct.h
-            gl_texture.c
-            gl_vertex.c
-            gl_wipe.c
-        )
-    endif()
+    set(SOURCES
+        ${SOURCES}
+        gl_clipper.c
+        gl_detail.c
+        gl_drawinfo.c
+        gl_fbo.c
+        gl_gamma.c
+        gl_hires.c
+        gl_intern.h
+        gl_light.c
+        gl_main.c
+        gl_map.c
+        gl_missingtexture.c
+        gl_opengl.c
+        gl_opengl.h
+        gl_preprocess.c
+        gl_shader.c
+        gl_shadow.c
+        gl_sky.c
+        gl_struct.h
+        gl_texture.c
+        gl_vertex.c
+        gl_wipe.c
+    )
 
     if(WIN32)
-        add_definitions("-DUSE_WIN32_PCSOUND_DRIVER -DUSE_WINDOWS_LAUNCHER")
+        add_definitions("-DUSE_WIN32_PCSOUND_DRIVER")
         set(SOURCES
             ${SOURCES}
             ../ICONS/icons.rc
-            e6y_launcher.c
-            e6y_launcher.h
             SDL/SDL_windows_main.c
         )
         if(MSVC)
@@ -431,10 +492,6 @@ function(AddGameExecutable TARGET SOURCES)
     target_include_directories(${TARGET} PRIVATE ${SDL2_MIXER_INCLUDE_DIRS})
     target_link_libraries(${TARGET} PRIVATE ${SDL2_MIXER_LIBRARIES})
 
-    if(PCREPOSIX_FOUND)
-        target_include_directories(${TARGET} PRIVATE ${PCRE_INCLUDE_DIR})
-        target_link_libraries(${TARGET} PRIVATE ${PCREPOSIX_LIBRARIES})
-    endif()
     if(ZLIB_FOUND)
         target_include_directories(${TARGET} PRIVATE ${ZLIB_INCLUDE_DIRS})
         target_link_libraries(${TARGET} PRIVATE ${ZLIB_LIBRARIES})
@@ -473,90 +530,10 @@ function(AddGameExecutable TARGET SOURCES)
 
     install(TARGETS ${TARGET} COMPONENT "Game executable" RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
-    if(OPENGL_FOUND AND OPENGL_GLU_FOUND)
-        target_compile_definitions(${TARGET} PRIVATE
-            GL_DOOM
-            USE_SHADERS
-            USE_FBO_TECHNIQUE
-            USE_GLU_IMAGESCALE
-            USE_GLU_MIPMAP
-            USE_GLU_TESS
-        )
-        target_link_libraries(${TARGET} PRIVATE
-            ${OPENGL_gl_LIBRARY}
-            ${OPENGL_glu_LIBRARY}
-        )
-    endif()
+    target_link_libraries(${TARGET} PRIVATE
+        ${OPENGL_gl_LIBRARY}
+        ${OPENGL_glu_LIBRARY}
+    )
 endfunction()
 
 AddGameExecutable(dsda-doom "${PRBOOM_PLUS_SOURCES}")
-
-
-# PrBoom-Plus macOS launcher
-
-if(APPLE)
-    set(LAUNCHER_SOURCES
-        MAC/ANSIString.m
-        MAC/ConsoleController.h
-        MAC/ConsoleController.m
-        MAC/DrawerButton.h
-        MAC/DrawerButton.m
-        MAC/FileButtonController.h
-        MAC/FileButtonController.m
-        MAC/LauncherApp.h
-        MAC/LauncherApp.m
-        MAC/LauncherMain.m
-        MAC/ResolutionDataSource.h
-        MAC/ResolutionDataSource.m
-        MAC/UKFileWatcher.h
-        MAC/UKKQueue.h
-        MAC/UKKQueue.m
-        MAC/UKMainThreadProxy.h
-        MAC/UKMainThreadProxy.m
-        MAC/WadViewController.h
-        MAC/WadViewController.m
-    )
-
-    set(LAUNCHER_RESOURCES
-        MAC/Launcher.icns
-        MAC/PrBoom.icns
-        MAC/PrBoom.sdef
-    )
-    set_source_files_properties(${LAUNCHER_RESOURCES} PROPERTIES
-        MACOSX_PACKAGE_LOCATION Resources
-    )
-
-    set(LAUNCHER_MAINMENU_RESOURCES
-        MAC/English.lproj/MainMenu.nib/classes.nib
-        MAC/English.lproj/MainMenu.nib/info.nib
-        MAC/English.lproj/MainMenu.nib/keyedobjects.nib
-    )
-    set_source_files_properties(${LAUNCHER_MAINMENU_RESOURCES} PROPERTIES
-        MACOSX_PACKAGE_LOCATION Resources/English.lproj/MainMenu.nib
-    )
-
-    add_executable(prboom-plus-launcher MACOSX_BUNDLE
-        ${LAUNCHER_SOURCES}
-        ${LAUNCHER_RESOURCES}
-        ${LAUNCHER_MAINMENU_RESOURCES}
-    )
-    target_include_directories(prboom-plus-launcher PRIVATE
-        ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-    set_target_properties(prboom-plus-launcher PROPERTIES
-        LINK_FLAGS "-framework Cocoa"
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/MAC/Info.plist"
-        OUTPUT_NAME "Launcher"
-        RUNTIME_OUTPUT_DIRECTORY ${PRBOOM_OUTPUT_PATH}
-        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
-    )
-    add_dependencies(prboom-plus-launcher dsda-doom)
-
-    set(BUNDLE_GAME_EXECUTABLE dsda-doom)
-
-    add_custom_command(TARGET prboom-plus-launcher POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${BUNDLE_GAME_EXECUTABLE}> $<TARGET_FILE_DIR:prboom-plus-launcher>/PrBoom-Plus
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${WAD_DATA_PATH} $<TARGET_FILE_DIR:prboom-plus-launcher>
-    )
-endif()

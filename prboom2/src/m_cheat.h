@@ -44,15 +44,10 @@
 /* killough 4/16/98: Cheat table structure */
 
 typedef enum {
-  always   = 0,
-  not_dm   = 1,
-  not_coop = 2,
-  not_demo = 4,
-  not_menu = 8,
-  not_classic_demo = 16,
-  not_net = not_dm | not_coop,
-  cht_dsda = not_net | not_classic_demo,
-  cht_never = not_net | not_demo
+  cht_always = 0,
+  not_demo = 1,
+  not_menu = 2,
+  not_classic_demo = 4, // allowed in dsda demo format
 } cheat_when_t;
 
 typedef struct cheatseq_s {
@@ -76,5 +71,6 @@ extern cheatseq_t cheat[];
 void M_CheatGod(void);
 void M_CheatNoClip(void);
 dboolean M_CheatResponder(event_t *ev);
+dboolean M_CheatEntered(const char* element, const char* value);
 
 #endif

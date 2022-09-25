@@ -105,7 +105,6 @@ typedef struct
 
 } hu_stext_t;
 
-//jff 2/26/98 new widget to display last hud_msg_lines of messages
 // Message refresh window widget
 typedef struct
 {
@@ -165,9 +164,11 @@ void HUlib_initTextLine
 
 // returns success
 dboolean HUlib_addCharToTextLine(hu_textline_t *t, char ch);
+dboolean HUlib_cpyStrToTextLine(hu_textline_t *t, const char *str);
 
 // draws tline
 void HUlib_drawTextLine(hu_textline_t *l, dboolean drawcursor);
+void HUlib_drawOffsetTextLine(hu_textline_t* l, int offset);
 
 // erases text line
 void HUlib_eraseTextLine(hu_textline_t *l);
@@ -207,16 +208,6 @@ void HUlib_initMText(hu_mtext_t *m, int x, int y, int w, int h, const patchnum_t
 // add a text message to refresh text widget
 void HUlib_addMessageToMText(hu_mtext_t* m, const char* prefix, const char* msg);
 
-//jff 2/26/98 new routine to display a background on which
-// the list of last hud_msg_lines are displayed
-void HUlib_drawMBg
-( int x,
-  int y,
-  int w,
-  int h,
-  const patchnum_t* bgp
-);
-
 //jff 2/26/98 message refresh widget
 // draws mtext
 void HUlib_drawMText(hu_mtext_t* m);
@@ -255,5 +246,7 @@ void HUlib_eraseIText(hu_itext_t* it);
 
 //e6y
 void HUlib_setTextXCenter(hu_textline_t* t);
+
+char HUlib_Color(int cm);
 
 #endif

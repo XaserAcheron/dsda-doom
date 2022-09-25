@@ -76,7 +76,6 @@ typedef struct
   vbo_vertex_t *data;
 } GLSkyVBO;
 
-int gl_skymode;
 int gl_drawskys;
 // Sky stretching is rather pointless with the GL renderer
 // now that it can handle all sky heights.
@@ -261,9 +260,6 @@ void gld_DrawStripsSky(void)
 
   if (gl_drawskys == skytype_standard)
   {
-    if (comp[comp_skymap] && gl_shared_texture_palette)
-      glDisable(GL_SHARED_TEXTURE_PALETTE_EXT);
-
     if (comp[comp_skymap] && (invul_method & INVUL_BW))
       glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 
@@ -333,9 +329,6 @@ void gld_DrawStripsSky(void)
 
     if (comp[comp_skymap] && (invul_method & INVUL_BW))
       glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB,GL_COMBINE);
-
-    if (comp[comp_skymap] && gl_shared_texture_palette)
-      glEnable(GL_SHARED_TEXTURE_PALETTE_EXT);
 
     SetFrameTextureMode();
   }
@@ -528,8 +521,6 @@ static float yMult, yAdd;
 static dboolean foglayer;
 static float delta = 0.0f;
 
-int gl_sky_detail = 16;
-
 //-----------------------------------------------------------------------------
 //
 //
@@ -559,7 +550,7 @@ void gld_GetSkyCapColors(void)
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
   glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
 
-  buffer = malloc(width * height * 4);
+  buffer = Z_Malloc(width * height * 4);
   glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
 
   averageColor(ceiling_rgb, (unsigned int*)buffer, width * MIN(30, height), 0);
@@ -590,7 +581,7 @@ void gld_GetSkyCapColors(void)
   fixedcolormap = fixedcolormap_saved;
   frame_fixedcolormap = frame_fixedcolormap_saved;
 
-  free(buffer);
+  Z_Free(buffer);
 }
 
 //-----------------------------------------------------------------------------
@@ -663,17 +654,17 @@ static void gld_BuildSky(int row_count, int col_count, SkyBoxParams_t *sky, int 
 
   if ((vbo->columns != col_count) || (vbo->rows != row_count))
   {
-    free(vbo->loops);
-    free(vbo->data);
+    Z_Free(vbo->loops);
+    Z_Free(vbo->data);
     memset(vbo, 0, sizeof(vbo[0]));
   }
 
   if (!vbo->data)
   {
     memset(vbo, 0, sizeof(vbo[0]));
-    vbo->loops = malloc((row_count * 2 + 2) * sizeof(vbo->loops[0]));
+    vbo->loops = Z_Malloc((row_count * 2 + 2) * sizeof(vbo->loops[0]));
     // create vertex array
-    vbo->data = malloc(vertex_count * sizeof(vbo->data[0]));
+    vbo->data = Z_Malloc(vertex_count * sizeof(vbo->data[0]));
   }
 
   vbo->columns = col_count;
@@ -758,16 +749,13 @@ static void RenderDome(SkyBoxParams_t *sky)
   else
     vbo = &sky_vbo[0];
 
-
-#if defined(USE_VERTEX_ARRAYS) || defined(USE_VBO)
   // be sure the second ARB is not enabled
   gld_EnableDetail(false);
-#endif
 
   glRotatef(-180.0f + sky->x_offset, 0.f, 1.f, 0.f);
 
   rows = 4;
-  columns = 4 * gl_sky_detail;
+  columns = 64;
 
   vbosize = 2 * rows * (columns * 2 + 2) + columns * 2;
 
@@ -807,7 +795,6 @@ static void RenderDome(SkyBoxParams_t *sky)
 
   gld_BindTexture(SkyBox.wall.gltexture, 0);
 
-#if defined(USE_VERTEX_ARRAYS) || defined(USE_VBO)
   if (gl_ext_arb_vertex_buffer_object)
   {
     // bind VBO in order to use
@@ -823,7 +810,6 @@ static void RenderDome(SkyBoxParams_t *sky)
   glEnableClientState(GL_VERTEX_ARRAY);
   glEnableClientState(GL_TEXTURE_COORD_ARRAY);
   glEnableClientState(GL_COLOR_ARRAY);
-#endif
 
   if (!gl_stretchsky)
   {
@@ -851,25 +837,7 @@ static void RenderDome(SkyBoxParams_t *sky)
       if (j == 0 ? loop->use_texture : !loop->use_texture)
         continue;
 
-#if defined(USE_VERTEX_ARRAYS) || defined(USE_VBO)
       glDrawArrays(loop->mode, loop->vertexindex, loop->vertexcount);
-#else
-      {
-        int k;
-        glBegin(loop->mode);
-        for (k = loop->vertexindex; k < (loop->vertexindex + loop->vertexcount); k++)
-        {
-          vbo_vertex_t *v = &vbo->data[k];
-          if (loop->use_texture)
-          {
-            glTexCoord2fv((GLfloat*)&v->u);
-          }
-          glColor4ubv((GLubyte*)&v->r);
-          glVertex3fv((GLfloat*)&v->x);
-        }
-        glEnd();
-      }
-#endif
     }
   }
 
@@ -878,7 +846,6 @@ static void RenderDome(SkyBoxParams_t *sky)
   // current color is undefined after glDrawArrays
   glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
-#if defined(USE_VERTEX_ARRAYS) || defined(USE_VBO)
   if (gl_ext_arb_vertex_buffer_object)
   {
     // bind with 0, so, switch back to normal pointer operation
@@ -886,7 +853,6 @@ static void RenderDome(SkyBoxParams_t *sky)
   }
   // deactivate color array
   glDisableClientState(GL_COLOR_ARRAY);
-#endif
 }
 
 void gld_DrawDomeSkyBox(void)
@@ -1021,7 +987,7 @@ void gld_ParseSkybox(void)
         if (ok)
         {
           BoxSkyboxCount++;
-          BoxSkybox = realloc(BoxSkybox, BoxSkyboxCount * sizeof(BoxSkybox[0]));
+          BoxSkybox = Z_Realloc(BoxSkybox, BoxSkyboxCount * sizeof(BoxSkybox[0]));
           memcpy(&BoxSkybox[BoxSkyboxCount - 1], &sb, sizeof(sb));
         }
       }

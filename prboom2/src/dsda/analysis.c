@@ -17,6 +17,7 @@
 
 #include "doomstat.h"
 
+#include "dsda/excmd.h"
 #include "dsda/settings.h"
 
 #include "analysis.h"
@@ -47,10 +48,6 @@ int dsda_kills_on_map = 0;
 dboolean dsda_100k_on_map = false;
 dboolean dsda_100k_note_shown = false;
 dboolean dsda_pacifist_note_shown = false;
-dboolean dsda_time_keys = false;
-dboolean dsda_time_use = false;
-dboolean dsda_time_secrets = false;
-dboolean dsda_time_all = false;
 
 void dsda_ResetAnalysis(void) {
   dsda_pacifist = true;
@@ -142,6 +139,7 @@ const char* dsda_DetectCategory(void) {
   );
   satisfies_100s = dsda_any_secrets && dsda_100s;
 
+  if (dsda_ExCmdDemo()) return "Other";
   if (dsda_turbo) return "Other";
   if (coop_spawns) return "Other";
   if (solo_net) return "Other";

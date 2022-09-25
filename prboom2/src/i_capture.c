@@ -39,10 +39,10 @@
 #include "i_system.h"
 #include "i_capture.h"
 
+#include "dsda/configuration.h"
 
 int capturing_video = 0;
 static const char *vid_fname;
-
 
 typedef struct
 { // information on a running pipe
@@ -61,15 +61,9 @@ static pipeinfo_t soundpipe;
 static pipeinfo_t videopipe;
 static pipeinfo_t muxpipe;
 
-
-const char *cap_soundcommand;
-const char *cap_videocommand;
-const char *cap_muxcommand;
-const char *cap_tempfile1;
-const char *cap_tempfile2;
-int cap_remove_tempfiles;
 int cap_fps;
 int cap_frac;
+int cap_wipescreen;
 
 // parses a command with simple printf-style replacements.
 
@@ -93,22 +87,22 @@ static int parsecommand (char *out, const char *in, int len)
       switch (in[1])
       {
         case 'w':
-          i = doom_snprintf (out, len, "%u", renderW);
+          i = snprintf (out, len, "%u", renderW);
           break;
         case 'h':
-          i = doom_snprintf (out, len, "%u", renderH);
+          i = snprintf (out, len, "%u", renderH);
           break;
         case 's':
-          i = doom_snprintf (out, len, "%u", snd_samplerate);
+          i = snprintf (out, len, "%u", snd_samplerate);
           break;
         case 'f':
-          i = doom_snprintf (out, len, "%s", vid_fname);
+          i = snprintf (out, len, "%s", vid_fname);
           break;
         case 'r':
-          i = doom_snprintf (out, len, "%u", cap_fps);
+          i = snprintf (out, len, "%u", cap_fps);
           break;
         case '%':
-          i = doom_snprintf (out, len, "%%");
+          i = snprintf (out, len, "%%");
           break;
         default:
           return 0;
@@ -179,7 +173,7 @@ static int my_popen3 (pipeinfo_t *p)
   STARTUPINFO siStartInfo;
   SECURITY_ATTRIBUTES sa;
 
-  puser = malloc (sizeof (puser_t));
+  puser = Z_Malloc (sizeof (puser_t));
   if (!puser)
     return 0;
 
@@ -287,7 +281,7 @@ static int my_popen3 (pipeinfo_t *p)
   if (parent_herr != INVALID_HANDLE_VALUE)
     CloseHandle (parent_herr);
 
-  free (puser);
+  Z_Free (puser);
 
   return 0;
 
@@ -309,7 +303,7 @@ static void my_pclose3 (pipeinfo_t *p)
 
   CloseHandle (puser->proc);
   CloseHandle (puser->thread);
-  free (puser);
+  Z_Free (puser);
 }
 
 #else // _WIN32
@@ -344,7 +338,7 @@ static int my_popen3 (pipeinfo_t *p)
 
   puser_t *puser = NULL;
 
-  puser = malloc (sizeof (puser_t));
+  puser = Z_Malloc (sizeof (puser_t));
   if (!puser)
     return 0;
 
@@ -418,7 +412,7 @@ static int my_popen3 (pipeinfo_t *p)
   close (child_hout);
   close (child_herr);
 
-  free (puser);
+  Z_Free (puser);
   return 0;
 
 }
@@ -439,7 +433,7 @@ static void my_pclose3 (pipeinfo_t *p)
 
   waitpid (puser->pid, &s, 0);
 
-  free (puser);
+  Z_Free (puser);
 }
 
 
@@ -497,6 +491,16 @@ static int threadstderrproc (void *data)
 // fn is filename passed from command line, typically final output file
 void I_CapturePrep (const char *fn)
 {
+  const char* cap_soundcommand;
+  const char* cap_videocommand;
+  const char* cap_muxcommand;
+
+  cap_soundcommand = dsda_StringConfig(dsda_config_cap_soundcommand);
+  cap_videocommand = dsda_StringConfig(dsda_config_cap_videocommand);
+  cap_muxcommand = dsda_StringConfig(dsda_config_cap_muxcommand);
+  cap_wipescreen = dsda_IntConfig(dsda_config_cap_wipescreen);
+  cap_fps = dsda_IntConfig(dsda_config_cap_fps);
+
   vid_fname = fn;
 
   if (!parsecommand (soundpipe.command, cap_soundcommand, sizeof(soundpipe.command)))
@@ -578,14 +582,14 @@ void I_CaptureFrame (void)
   {
     if (fwrite (snd, nsampreq * 4, 1, soundpipe.f_stdin) != 1)
       lprintf(LO_WARN, "I_CaptureFrame: error writing soundpipe.\n");
-    //free (snd); // static buffer
+    //Z_Free (snd); // static buffer
   }
   vid = I_GrabScreen ();
   if (vid)
   {
     if (fwrite (vid, renderW * renderH * 3, 1, videopipe.f_stdin) != 1)
       lprintf(LO_WARN, "I_CaptureFrame: error writing videopipe.\n");
-    //free (vid); // static buffer
+    //Z_Free (vid); // static buffer
   }
 
 }
@@ -634,8 +638,14 @@ void I_CaptureFinish (void)
 
 
   // unlink any files user wants gone
-  if (cap_remove_tempfiles)
+  if (dsda_IntConfig(dsda_config_cap_remove_tempfiles))
   {
+    const char* cap_tempfile1;
+    const char* cap_tempfile2;
+
+    cap_tempfile1 = dsda_StringConfig(dsda_config_cap_tempfile1);
+    cap_tempfile2 = dsda_StringConfig(dsda_config_cap_tempfile2);
+
     remove (cap_tempfile1);
     remove (cap_tempfile2);
   }

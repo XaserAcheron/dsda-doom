@@ -48,13 +48,10 @@ extern int skytexture;
 extern int skytexturemid;
 
 #define SKYSTRETCH_HEIGHT 228
-extern int r_stretchsky;
 extern int skystretch;
 extern fixed_t freelookviewheight;
 
 /* Called whenever the view size changes. */
 void R_InitSkyMap(void);
-
-void R_InitSky(int map);
 
 #endif

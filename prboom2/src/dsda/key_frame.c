@@ -27,7 +27,6 @@
 #include "r_fps.h"
 #include "r_main.h"
 #include "g_game.h"
-#include "m_argv.h"
 #include "m_misc.h"
 #include "i_system.h"
 #include "lprintf.h"
@@ -35,50 +34,166 @@
 
 #include "heretic/sb_bar.h"
 
+#include "dsda.h"
+#include "dsda/args.h"
+#include "dsda/build.h"
+#include "dsda/command_display.h"
 #include "dsda/demo.h"
+#include "dsda/features.h"
+#include "dsda/mapinfo.h"
 #include "dsda/options.h"
+#include "dsda/pause.h"
+#include "dsda/playback.h"
 #include "dsda/save.h"
 #include "dsda/settings.h"
 #include "dsda/time.h"
 
 #include "key_frame.h"
 
-// Hook into the save & demo ecosystem
-extern const byte* demo_p;
-extern byte* savebuffer;
-extern size_t savegamesize;
-extern dboolean setsizeneeded;
-extern dboolean BorderNeedRefresh;
-extern int inv_ptr;
-struct MapEntry *G_LookupMapinfo(int gameepisode, int gamemap);
-void RecalculateDrawnSubsectors(void);
+static dboolean auto_kf_timed_out;
+static int auto_kf_timeout_count;
 
-static byte* dsda_quick_key_frame_buffer;
-static int dsda_key_frame_restored;
-static dboolean dsda_auto_key_frame_timed_out;
+#define TIMEOUT_LIMIT 1
 
-typedef struct {
-  byte* buffer;
-  int index;
-} dsda_key_frame_t;
-
-static dsda_key_frame_t* dsda_auto_key_frames;
-static int dsda_last_auto_key_frame;
-static int dsda_auto_key_frames_size;
+static dsda_key_frame_t first_kf;
+static dsda_key_frame_t quick_kf;
+static auto_kf_t* auto_key_frames;
+static auto_kf_t* last_auto_kf;
+static int auto_kf_size;
 static int restore_key_frame_index = -1;
 
-int dsda_auto_key_frame_timeout;
+static int dsda_auto_key_frame_interval;
+static int dsda_auto_key_frame_depth;
+static int dsda_auto_key_frame_timeout;
+
+static int autoKeyFrameTimeout(void) {
+  return dsda_StartInBuildMode() ? 0 : dsda_auto_key_frame_timeout;
+}
+
+static int autoKeyFrameDepth(void) {
+  if (dsda_StartInBuildMode() && dsda_auto_key_frame_depth < 60)
+    return 60;
+
+  return dsda_auto_key_frame_depth;
+}
+
+static int autoKeyFrameInterval(void) {
+  if (dsda_StartInBuildMode())
+    return 1;
+
+  return dsda_auto_key_frame_interval;
+}
+
+static dboolean autoKFExists(auto_kf_t* auto_kf) {
+  return auto_kf && auto_kf->auto_index && auto_kf->kf.buffer;
+}
+
+void dsda_ForgetAutoKeyFrames(void) {
+  if (last_auto_kf)
+    last_auto_kf->auto_index = 0;
+}
+
+static void dsda_ResetParentKF(dsda_key_frame_t* kf) {
+  kf->parent.auto_kf = NULL;
+  kf->parent.buffer = NULL;
+}
+
+static void dsda_AttachAutoKF(dsda_key_frame_t* kf) {
+  if (autoKFExists(last_auto_kf)) {
+    kf->parent.auto_kf = last_auto_kf;
+    kf->parent.buffer = last_auto_kf->kf.buffer;
+  }
+  else
+    dsda_ResetParentKF(kf);
+}
+
+static void dsda_ResolveParentKF(dsda_key_frame_t* kf) {
+  if (autoKFExists(kf->parent.auto_kf) && kf->parent.auto_kf->kf.buffer == kf->parent.buffer)
+    last_auto_kf = kf->parent.auto_kf;
+  else {
+    dsda_ResetParentKF(kf);
+    dsda_ForgetAutoKeyFrames();
+  }
+}
+
+static void dsda_RewindKF(auto_kf_t** current) {
+  auto_kf_t* auto_kf;
+
+  auto_kf = *current;
+
+  if (auto_kf &&
+      auto_kf->auto_index && auto_kf->prev->auto_index &&
+      auto_kf->auto_index == auto_kf->prev->auto_index + 1)
+    *current = auto_kf->prev;
+  else
+    *current = NULL;
+}
+
+static dsda_key_frame_t* dsda_ClosestKeyFrame(int target_tic_count) {
+  dsda_key_frame_t* closest = NULL;
+
+  if (last_auto_kf) {
+    auto_kf_t* auto_kf;
+
+    auto_kf = last_auto_kf;
+    for (auto_kf = last_auto_kf; auto_kf && auto_kf->kf.buffer; dsda_RewindKF(&auto_kf))
+      if (auto_kf->kf.game_tic_count <= target_tic_count)
+        if (!closest || auto_kf->kf.game_tic_count > closest->game_tic_count) {
+          closest = &auto_kf->kf;
+          break;
+        }
+  }
+
+  if (!demorecording && quick_kf.buffer)
+    if (quick_kf.game_tic_count <= target_tic_count)
+      if (!closest || quick_kf.game_tic_count > closest->game_tic_count)
+        closest = &quick_kf;
+
+  if (first_kf.buffer)
+    if (first_kf.game_tic_count <= target_tic_count)
+      if (!closest || first_kf.game_tic_count > closest->game_tic_count)
+        closest = &first_kf;
+
+  return closest;
+}
+
+void dsda_CopyKeyFrame(dsda_key_frame_t* dest, dsda_key_frame_t* source) {
+  *dest = *source;
+  dest->buffer = Z_Malloc(dest->buffer_length);
+  memcpy(dest->buffer, source->buffer, dest->buffer_length);
+}
 
 void dsda_InitKeyFrame(void) {
-  dsda_auto_key_frames_size = dsda_AutoKeyFrameDepth();
+  int i;
 
-  if (dsda_auto_key_frames_size == 0) return;
+  dsda_auto_key_frame_interval = dsda_IntConfig(dsda_config_auto_key_frame_interval);
+  dsda_auto_key_frame_depth = dsda_IntConfig(dsda_config_auto_key_frame_depth);
+  dsda_auto_key_frame_timeout = dsda_IntConfig(dsda_config_auto_key_frame_timeout);
 
-  if (dsda_auto_key_frames != NULL) free(dsda_auto_key_frames);
+  auto_kf_size = autoKeyFrameDepth();
 
-  dsda_auto_key_frames =
-    calloc(dsda_auto_key_frames_size, sizeof(dsda_key_frame_t));
-  dsda_last_auto_key_frame = -1;
+  if (!auto_kf_size) {
+    last_auto_kf = NULL;
+    return;
+  }
+
+  if (auto_key_frames != NULL)
+    Z_Free(auto_key_frames);
+
+  ++auto_kf_size; // chain includes a terminator
+
+  auto_key_frames = Z_Calloc(auto_kf_size, sizeof(auto_kf_t));
+
+  auto_key_frames[0].prev = &auto_key_frames[auto_kf_size - 1];
+  auto_key_frames[auto_kf_size - 1].next = &auto_key_frames[0];
+
+  for (i = 0; i < auto_kf_size - 1; ++i)
+    auto_key_frames[i].next = &auto_key_frames[i + 1];
+
+  for (i = 1; i < auto_kf_size; ++i)
+    auto_key_frames[i].prev = &auto_key_frames[i - 1];
+
+  last_auto_kf = &auto_key_frames[auto_kf_size - 1];
 }
 
 void dsda_ExportKeyFrame(byte* buffer, int length) {
@@ -88,11 +203,11 @@ void dsda_ExportKeyFrame(byte* buffer, int length) {
 
   timestamp = totalleveltimes + leveltime;
 
-  snprintf(name, 40, "backup-%010d.kf", timestamp);
+  snprintf(name, sizeof(name), "backup-%010d.kf", timestamp);
 
   if ((fp = fopen(name, "rb")) != NULL) {
     fclose(fp);
-    snprintf(name, 40, "backup-%010d-%lld.kf", timestamp, time(NULL));
+    snprintf(name, sizeof(name), "backup-%010d-%lld.kf", timestamp, time(NULL));
   }
 
   if (!M_WriteFile(name, buffer, length))
@@ -100,239 +215,142 @@ void dsda_ExportKeyFrame(byte* buffer, int length) {
 }
 
 // Stripped down version of G_DoSaveGame
-void dsda_StoreKeyFrame(byte** buffer, byte complete) {
-  int demo_write_buffer_offset, i, length;
-  demo_write_buffer_offset = dsda_DemoBufferOffset();
+void dsda_StoreKeyFrame(dsda_key_frame_t* key_frame, byte complete, byte export) {
+  int i;
 
-  save_p = savebuffer = malloc(savegamesize);
+  key_frame->game_tic_count = logictic;
 
-  CheckSaveGame(5 + FUTURE_MAXPLAYERS);
-  *save_p++ = compatibility_level;
-  *save_p++ = gameskill;
-  *save_p++ = gameepisode;
-  *save_p++ = gamemap;
+  P_InitSaveBuffer();
 
-  for (i = 0; i < g_maxplayers; i++)
-    *save_p++ = playeringame[i];
+  P_SAVE_BYTE(complete);
+  P_SAVE_X(key_frame->game_tic_count);
 
-  for (; i < FUTURE_MAXPLAYERS; i++)
-    *save_p++ = 0;
+  // Store state of demo playback buffer
+  dsda_StorePlaybackPosition();
 
-  *save_p++ = idmusnum;
-
-  CheckSaveGame(dsda_GameOptionSize());
-  save_p = G_WriteOptions(save_p);
-
-  // Store progress bar for demo playback
-  CheckSaveGame(sizeof(demo_curr_tic));
-  memcpy(save_p, &demo_curr_tic, sizeof(demo_curr_tic));
-  save_p += sizeof(demo_curr_tic);
-
-  // Store location in demo playback buffer
-  CheckSaveGame(sizeof(demo_p));
-  memcpy(save_p, &demo_p, sizeof(demo_p));
-  save_p += sizeof(demo_p);
-
-  // Store location in demo recording buffer
-  CheckSaveGame(sizeof(demo_write_buffer_offset));
-  memcpy(save_p, &demo_write_buffer_offset, sizeof(demo_write_buffer_offset));
-  save_p += sizeof(demo_write_buffer_offset);
-
-  if (complete && demo_write_buffer_offset) {
-    CheckSaveGame(demo_write_buffer_offset);
-    save_p += dsda_CopyDemoBuffer(save_p);
-  }
-
-  CheckSaveGame(sizeof(leveltime));
-  memcpy(save_p, &leveltime, sizeof(leveltime));
-  save_p += sizeof(leveltime);
-
-  CheckSaveGame(sizeof(totalleveltimes));
-  memcpy(save_p, &totalleveltimes, sizeof(totalleveltimes));
-  save_p += sizeof(totalleveltimes);
-
-  CheckSaveGame(1);
-  *save_p++ = (gametic - basetic) & 255;
+  // Store state of demo recording buffer
+  dsda_StoreDemoData(complete);
 
   dsda_ArchiveAll();
 
-  if (*buffer != NULL) free(*buffer);
+  if (key_frame->buffer != NULL) Z_Free(key_frame->buffer);
 
-  length = save_p - savebuffer;
+  key_frame->buffer = savebuffer;
+  key_frame->buffer_length = save_p - savebuffer;
 
-  *buffer = savebuffer;
-  savebuffer = save_p = NULL;
+  P_ForgetSaveBuffer();
+
+  dsda_AttachAutoKF(key_frame);
 
   if (complete) {
-    if (demo_write_buffer_offset)
-      dsda_ExportKeyFrame(*buffer, length);
+    if (demorecording && export)
+      dsda_ExportKeyFrame(key_frame->buffer, key_frame->buffer_length);
 
     doom_printf("Stored key frame");
   }
 }
 
 // Stripped down version of G_DoLoadGame
-// save_p is coopted to use the save logic
-void dsda_RestoreKeyFrame(byte* buffer, byte complete) {
-  int demo_write_buffer_offset, i;
+void dsda_RestoreKeyFrame(dsda_key_frame_t* key_frame, dboolean skip_wipe) {
+  void G_AfterLoad(void);
 
-  if (buffer == NULL) {
+  int demo_write_buffer_offset, i;
+  int epi, map;
+  byte complete;
+
+  if (key_frame->buffer == NULL) {
     doom_printf("No key frame found");
     return;
   }
 
-  save_p = buffer;
+  dsda_TrackFeature(UF_KEYFRAME);
 
-  compatibility_level = *save_p++;
-  gameskill = *save_p++;
-  gameepisode = *save_p++;
-  gamemap = *save_p++;
-  gamemapinfo = G_LookupMapinfo(gameepisode, gamemap);
+  if (skip_wipe || dsda_BuildMode())
+    dsda_SkipNextWipe();
 
-  for (i = 0; i < g_maxplayers; i++)
-    playeringame[i] = *save_p++;
-  save_p += FUTURE_MAXPLAYERS - g_maxplayers;
+  save_p = key_frame->buffer;
 
-  idmusnum = *save_p++;
-  if (idmusnum == 255) idmusnum = -1;
+  P_LOAD_BYTE(complete);
+  P_LOAD_X(key_frame->game_tic_count);
 
-  save_p += (G_ReadOptions(save_p) - save_p);
+  // Restore state of demo playback buffer
+  dsda_RestorePlaybackPosition();
 
-  // Restore progress bar for demo playback
-  memcpy(&demo_curr_tic, save_p, sizeof(demo_curr_tic));
-  save_p += sizeof(demo_curr_tic);
-
-  // Restore location in demo playback buffer
-  memcpy(&demo_p, save_p, sizeof(demo_p));
-  save_p += sizeof(demo_p);
-
-  // Restore location in demo recording buffer
-  memcpy(&demo_write_buffer_offset, save_p, sizeof(demo_write_buffer_offset));
-  save_p += sizeof(demo_write_buffer_offset);
-
-  if (complete && demo_write_buffer_offset) {
-    dsda_SetDemoBufferOffset(0);
-    dsda_WriteToDemo(save_p, demo_write_buffer_offset);
-    save_p += demo_write_buffer_offset;
-  }
-  else {
-    dsda_SetDemoBufferOffset(demo_write_buffer_offset);
-  }
-
-  G_InitNew(gameskill, gameepisode, gamemap);
-
-  memcpy(&leveltime, save_p, sizeof(leveltime));
-  save_p += sizeof(leveltime);
-
-  memcpy(&totalleveltimes, save_p, sizeof(totalleveltimes));
-  save_p += sizeof(totalleveltimes);
-
-  restore_key_frame_index = (totalleveltimes + leveltime) / (35 * dsda_AutoKeyFrameInterval());
-
-  basetic = gametic - *save_p++;
+  // Restore state of demo recording buffer
+  dsda_RestoreDemoData(complete);
 
   dsda_UnArchiveAll();
 
-  R_ActivateSectorInterpolations();
-  R_SmoothPlaying_Reset(NULL);
+  dsda_RestoreCommandHistory();
 
-  if (musinfo.current_item != -1)
-    S_ChangeMusInfoMusic(musinfo.current_item, true);
+  restore_key_frame_index = (totalleveltimes + leveltime) / (35 * autoKeyFrameInterval());
 
-  RecalculateDrawnSubsectors();
+  G_AfterLoad();
 
-  if (hexen)
-  {
-    SB_SetClassData();
-  }
+  dsda_QueueJoin();
 
-  if (raven)
-  {
-    players[consoleplayer].readyArtifact = players[consoleplayer].inventory[inv_ptr].type;
-  }
-
-  if (setsizeneeded) R_ExecuteSetViewSize();
-
-  R_FillBackScreen();
-
-  BorderNeedRefresh = true;
-  ST_Start();
-
-  dsda_key_frame_restored = 1;
+  dsda_ResolveParentKF(key_frame);
 
   doom_printf("Restored key frame");
 }
 
-int dsda_KeyFrameRestored(void) {
-  if (!dsda_key_frame_restored) return 0;
-
-  dsda_key_frame_restored = 0;
-  return 1;
-}
-
 void dsda_StoreQuickKeyFrame(void) {
-  dsda_StoreKeyFrame(&dsda_quick_key_frame_buffer, true);
+  dsda_StoreKeyFrame(&quick_kf, true, true);
 }
 
 void dsda_RestoreQuickKeyFrame(void) {
-  dsda_RestoreKeyFrame(dsda_quick_key_frame_buffer, true);
+  dsda_RestoreKeyFrame(&quick_kf, false);
+}
+
+dboolean dsda_RestoreClosestKeyFrame(int tic) {
+  dsda_key_frame_t* key_frame;
+
+  key_frame = dsda_ClosestKeyFrame(tic);
+
+  if (!key_frame)
+    return false;
+
+  dsda_RestoreKeyFrame(key_frame, true);
+
+  return true;
 }
 
 void dsda_RestoreKeyFrameFile(const char* name) {
   char *filename;
-  byte* buffer;
+  dsda_key_frame_t key_frame = { 0 };
 
-  filename = I_FindFile(name, ".kf");
-  if (filename)
-  {
-    M_ReadFile(filename, &buffer);
-    free(filename);
+  filename = I_RequireFile(name, ".kf");
+  M_ReadFile(filename, &key_frame.buffer);
+  Z_Free(filename);
 
-    dsda_RestoreKeyFrame(buffer, true);
-    free(buffer);
-  }
-  else
-    I_Error("dsda_RestoreKeyFrameFile: cannot find %s", name);
+  dsda_RestoreKeyFrame(&key_frame, false);
+  Z_Free(key_frame.buffer);
 }
 
 void dsda_ContinueKeyFrame(void) {
-  int p;
+  dsda_arg_t* arg;
 
-  p = M_CheckParm("-from_key_frame");
-  if (p && (p + 1 < myargc)) {
-    dsda_RestoreKeyFrameFile(myargv[p + 1]);
+  arg = dsda_Arg(dsda_arg_from_key_frame);
+  if (arg->found) {
+    dsda_RestoreKeyFrameFile(arg->value.v_string);
   }
 }
 
 void dsda_RewindAutoKeyFrame(void) {
-  int current_time;
-  int interval_tics;
-  int key_frame_index;
-  int history_index;
+  auto_kf_t* load_kf;
 
-  if (dsda_auto_key_frames_size == 0) {
-    doom_printf("No key frame found");
-    return;
-  }
+  load_kf = last_auto_kf;
+  dsda_RewindKF(&load_kf);
 
-  current_time = totalleveltimes + leveltime;
-  interval_tics = 35 * dsda_AutoKeyFrameInterval();
-
-  key_frame_index = current_time / interval_tics - 1;
-
-  history_index = dsda_last_auto_key_frame - 1;
-  if (history_index < 0) history_index = dsda_auto_key_frames_size - 1;
-
-  if (dsda_auto_key_frames[history_index].index <= key_frame_index) {
-    dsda_last_auto_key_frame = history_index;
-    dsda_SkipNextWipe();
-    dsda_RestoreKeyFrame(dsda_auto_key_frames[history_index].buffer, false);
-  }
-  else doom_printf("No key frame found"); // rewind past the depth limit
+  if (load_kf)
+    dsda_RestoreKeyFrame(&load_kf->kf, true);
+  else
+    doom_printf("No key frame found"); // rewind past the depth limit
 }
 
 void dsda_ResetAutoKeyFrameTimeout(void) {
-  dsda_auto_key_frame_timed_out = false;
+  auto_kf_timed_out = false;
+  auto_kf_timeout_count = 0;
 }
 
 void dsda_UpdateAutoKeyFrames(void) {
@@ -342,42 +360,53 @@ void dsda_UpdateAutoKeyFrames(void) {
   dsda_key_frame_t* current_key_frame;
 
   if (
-    dsda_auto_key_frame_timed_out ||
-    dsda_auto_key_frames_size == 0 ||
+    auto_kf_timed_out ||
+    auto_kf_size == 0 ||
     gamestate != GS_LEVEL ||
     gameaction != ga_nothing
   ) return;
 
   current_time = totalleveltimes + leveltime;
-  interval_tics = 35 * dsda_AutoKeyFrameInterval();
+  interval_tics = 35 * autoKeyFrameInterval();
 
   // Automatically save a key frame each interval
   if (current_time % interval_tics == 0) {
     key_frame_index = current_time / interval_tics;
 
     // Don't duplicate on rewind
-    if (key_frame_index == restore_key_frame_index)
+    if (key_frame_index == restore_key_frame_index) {
+      restore_key_frame_index = -1;
       return;
+    }
 
-    dsda_last_auto_key_frame += 1;
-    if (dsda_last_auto_key_frame >= dsda_auto_key_frames_size)
-      dsda_last_auto_key_frame = 0;
+    last_auto_kf = last_auto_kf->next;
+    last_auto_kf->next->auto_index = 0;
+    last_auto_kf->auto_index = last_auto_kf->prev->auto_index + 1;
 
-    current_key_frame = &dsda_auto_key_frames[dsda_last_auto_key_frame];
-    current_key_frame->index = key_frame_index;
+    current_key_frame = &last_auto_kf->kf;
 
     {
       unsigned long long elapsed_time;
 
       dsda_StartTimer(dsda_timer_key_frame);
-      dsda_StoreKeyFrame(&current_key_frame->buffer, false);
+      dsda_StoreKeyFrame(current_key_frame, false, false);
       elapsed_time = dsda_ElapsedTimeMS(dsda_timer_key_frame);
 
-      if (dsda_auto_key_frame_timeout && elapsed_time > dsda_auto_key_frame_timeout)
-      {
-        dsda_auto_key_frame_timed_out = true;
-        doom_printf("Slow key framing: rewind disabled");
+      if (autoKeyFrameTimeout()) {
+        if (elapsed_time > autoKeyFrameTimeout()) {
+          ++auto_kf_timeout_count;
+
+          if (auto_kf_timeout_count > TIMEOUT_LIMIT) {
+            auto_kf_timed_out = true;
+            doom_printf("Slow key framing: rewind disabled");
+          }
+        }
+        else
+          auto_kf_timeout_count = 0;
       }
     }
+
+    if (!first_kf.buffer)
+      dsda_CopyKeyFrame(&first_kf, current_key_frame);
   }
 }

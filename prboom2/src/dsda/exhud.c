@@ -12,170 +12,366 @@
 // GNU General Public License for more details.
 //
 // DESCRIPTION:
-//	DSDA Intermission Display
+//	DSDA Extended HUD
 //
 
-#include "hu_lib.h"
-#include "hu_stuff.h"
-#include "doomstat.h"
+#include <stdio.h>
 
-#include "dsda.h"
+#include "hu_stuff.h"
+#include "lprintf.h"
+#include "m_misc.h"
+#include "r_main.h"
+#include "v_video.h"
+#include "w_wad.h"
+
+#include "dsda/args.h"
 #include "dsda/global.h"
-#include "dsda/hud.h"
+#include "dsda/hud_components.h"
+#include "dsda/render_stats.h"
+#include "dsda/settings.h"
+#include "dsda/utility.h"
 
 #include "exhud.h"
 
+typedef struct {
+  void (*init)(int x_offset, int y_offset, int vpt_flags);
+  void (*update)(void);
+  void (*draw)(void);
+  void (*erase)(void);
+  const char* name;
+  int default_vpt;
+  dboolean strict;
+  dboolean on;
+  dboolean initialized;
+} exhud_component_t;
+
+typedef enum {
+  exhud_ammo_text,
+  exhud_armor_text,
+  exhud_big_ammo,
+  exhud_big_armor,
+  exhud_big_health,
+  exhud_composite_time,
+  exhud_health_text,
+  exhud_keys,
+  exhud_ready_ammo_text,
+  exhud_speed_text,
+  exhud_stat_totals,
+  exhud_tracker,
+  exhud_weapon_text,
+  exhud_render_stats,
+  exhud_fps,
+  exhud_component_count,
+} exhud_component_id_t;
+
+exhud_component_t components[exhud_component_count] = {
+  [exhud_ammo_text] = {
+    dsda_InitAmmoTextHC,
+    dsda_UpdateAmmoTextHC,
+    dsda_DrawAmmoTextHC,
+    dsda_EraseAmmoTextHC,
+    "ammo_text"
+  },
+  [exhud_armor_text] = {
+    dsda_InitArmorTextHC,
+    dsda_UpdateArmorTextHC,
+    dsda_DrawArmorTextHC,
+    dsda_EraseArmorTextHC,
+    "armor_text"
+  },
+  [exhud_big_ammo] = {
+    dsda_InitBigAmmoHC,
+    dsda_UpdateBigAmmoHC,
+    dsda_DrawBigAmmoHC,
+    dsda_EraseBigAmmoHC,
+    "big_ammo"
+  },
+  [exhud_big_armor] = {
+    dsda_InitBigArmorHC,
+    dsda_UpdateBigArmorHC,
+    dsda_DrawBigArmorHC,
+    dsda_EraseBigArmorHC,
+    "big_armor",
+    VPT_NOOFFSET
+  },
+  [exhud_big_health] = {
+    dsda_InitBigHealthHC,
+    dsda_UpdateBigHealthHC,
+    dsda_DrawBigHealthHC,
+    dsda_EraseBigHealthHC,
+    "big_health",
+    VPT_NOOFFSET
+  },
+  [exhud_composite_time] = {
+    dsda_InitCompositeTimeHC,
+    dsda_UpdateCompositeTimeHC,
+    dsda_DrawCompositeTimeHC,
+    dsda_EraseCompositeTimeHC,
+    "composite_time"
+  },
+  [exhud_health_text] = {
+    dsda_InitHealthTextHC,
+    dsda_UpdateHealthTextHC,
+    dsda_DrawHealthTextHC,
+    dsda_EraseHealthTextHC,
+    "health_text"
+  },
+  [exhud_keys] = {
+    dsda_InitKeysHC,
+    dsda_UpdateKeysHC,
+    dsda_DrawKeysHC,
+    dsda_EraseKeysHC,
+    "keys",
+    VPT_NOOFFSET
+  },
+  [exhud_ready_ammo_text] = {
+    dsda_InitReadyAmmoTextHC,
+    dsda_UpdateReadyAmmoTextHC,
+    dsda_DrawReadyAmmoTextHC,
+    dsda_EraseReadyAmmoTextHC,
+    "ready_ammo_text"
+  },
+  [exhud_speed_text] = {
+    dsda_InitSpeedTextHC,
+    dsda_UpdateSpeedTextHC,
+    dsda_DrawSpeedTextHC,
+    dsda_EraseSpeedTextHC,
+    "speed_text"
+  },
+  [exhud_stat_totals] = {
+    dsda_InitStatTotalsHC,
+    dsda_UpdateStatTotalsHC,
+    dsda_DrawStatTotalsHC,
+    dsda_EraseStatTotalsHC,
+    "stat_totals"
+  },
+  [exhud_tracker] = {
+    dsda_InitTrackerHC,
+    dsda_UpdateTrackerHC,
+    dsda_DrawTrackerHC,
+    dsda_EraseTrackerHC,
+    "tracker",
+    VPT_NONE,
+    true
+  },
+  [exhud_weapon_text] = {
+    dsda_InitWeaponTextHC,
+    dsda_UpdateWeaponTextHC,
+    dsda_DrawWeaponTextHC,
+    dsda_EraseWeaponTextHC,
+    "weapon_text"
+  },
+  [exhud_render_stats] = {
+    dsda_InitRenderStatsHC,
+    dsda_UpdateRenderStatsHC,
+    dsda_DrawRenderStatsHC,
+    dsda_EraseRenderStatsHC,
+    "render_stats",
+    VPT_NONE,
+    true
+  },
+  [exhud_fps] = {
+    dsda_InitFPSHC,
+    dsda_UpdateFPSHC,
+    dsda_DrawFPSHC,
+    dsda_EraseFPSHC,
+    "fps"
+  },
+};
+
 #define DSDA_EXHUD_X 2
 
-dsda_text_t dsda_exhud_timer;
-dsda_text_t dsda_exhud_max_totals;
+int exhud_color_default;
+int exhud_color_warning;
+int exhud_color_alert;
 
-void dsda_InitExHud(patchnum_t* font) {
-  HUlib_initTextLine(
-    &dsda_exhud_timer.text,
-    DSDA_EXHUD_X,
-    200 - g_st_height - 16,
-    font,
-    HU_FONTSTART,
-    g_cr_gray,
-    VPT_ALIGN_LEFT_BOTTOM
-  );
+int dsda_show_render_stats;
 
-  HUlib_initTextLine(
-    &dsda_exhud_max_totals.text,
-    DSDA_EXHUD_X,
-    200 - g_st_height - 8,
-    font,
-    HU_FONTSTART,
-    g_cr_gray,
-    VPT_ALIGN_LEFT_BOTTOM
-  );
+static void dsda_TurnComponentOn(int id) {
+  if (!components[id].initialized)
+    return;
+
+  components[id].on = true;
 }
 
-extern int totalleveltimes;
+static void dsda_TurnComponentOff(int id) {
+  components[id].on = false;
+}
 
-void dsda_UpdateExHud(void) {
-  char* s;
-  int total_time;
+static void dsda_InitializeComponent(int id, int x, int y, int vpt) {
+  components[id].initialized = true;
+  components[id].init(x, y, vpt | components[id].default_vpt | VPT_EX_TEXT);
+}
 
-  total_time = hexen ?
-               players[consoleplayer].worldTimer :
-               totalleveltimes + leveltime;
+static char** dsda_HUDConfig(void) {
+  static dboolean loaded;
+  static char* hud_config;
+  static char** lines;
 
-  // Timer - from hu_stuff.c
-  if (total_time != leveltime)
-    snprintf(
-      dsda_exhud_timer.msg,
-      sizeof(dsda_exhud_timer.msg),
-      "\x1b%ctime \x1b%c%d:%02d \x1b%c%d:%05.2f ",
-      g_cr_gray + 0x30,
-      g_cr_gold + 0x30,
-      total_time / 35 / 60,
-      (total_time % (60 * 35)) / 35,
-      g_cr_green + 0x30,
-      leveltime / 35 / 60,
-      (float)(leveltime % (60 * 35)) / 35
-    );
-  else
-    snprintf(
-      dsda_exhud_timer.msg,
-      sizeof(dsda_exhud_timer.msg),
-      "\x1b%ctime \x1b%c%d:%05.2f ",
-      g_cr_gray + 0x30,
-      g_cr_green + 0x30,
-      leveltime / 35 / 60,
-      (float)(leveltime % (60 * 35)) / 35
-    );
+  if (!loaded) {
+    dsda_arg_t* arg;
+    int lump;
+    int length = 0;
 
-  dsda_RefreshHudText(&dsda_exhud_timer);
+    arg = dsda_Arg(dsda_arg_hud);
+    if (arg->found)
+      length = M_ReadFileToString(arg->value.v_string, &hud_config);
 
-  // Max totals - from hu_stuff.c
-  {
-    int i;
-    char allkills[200], allsecrets[200];
-    int playerscount;
-    int fullkillcount, fullitemcount, fullsecretcount;
-    int color, killcolor, itemcolor, secretcolor;
-    int kill_percent_count;
-    int allkills_len = 0;
-    int allsecrets_len = 0;
-    int max_kill_requirement;
+    lump = W_GetNumForName("DSDAHUD");
 
-    playerscount = 0;
-    fullkillcount = 0;
-    fullitemcount = 0;
-    fullsecretcount = 0;
-    kill_percent_count = 0;
-    max_kill_requirement = dsda_MaxKillRequirement();
-
-    for (i = 0; i < g_maxplayers; i++) {
-      if (playeringame[i]) {
-        color = i == displayplayer ? 0x30 + g_cr_green : 0x30 + g_cr_gray;
-        if (playerscount==0) {
-          allkills_len = sprintf(allkills, "\x1b%c%d", color, players[i].killcount - players[i].maxkilldiscount);
-          allsecrets_len = sprintf(allsecrets, "\x1b%c%d", color, players[i].secretcount);
-        }
-        else {
-          if (allkills_len >= 0 && allsecrets_len >=0) {
-            allkills_len += sprintf(&allkills[allkills_len], "\x1b%c+%d", color, players[i].killcount - players[i].maxkilldiscount);
-            allsecrets_len += sprintf(&allsecrets[allsecrets_len], "\x1b%c+%d", color, players[i].secretcount);
-          }
-        }
-        playerscount++;
-        fullkillcount += players[i].killcount - players[i].maxkilldiscount;
-        fullitemcount += players[i].itemcount;
-        fullsecretcount += players[i].secretcount;
-        kill_percent_count += players[i].killcount;
+    if (lump != -1) {
+      if (!hud_config)
+        hud_config = W_ReadLumpToString(lump);
+      else {
+        hud_config = Z_Realloc(hud_config, length + W_LumpLength(lump) + 2);
+        hud_config[length++] = '\n'; // in case the file didn't end in a new line
+        W_ReadLump(lump, hud_config + length);
+        hud_config[length + W_LumpLength(lump)] = '\0';
       }
     }
 
-    if (respawnmonsters)
-    {
-      fullkillcount = kill_percent_count;
-      max_kill_requirement = totalkills;
-    }
+    if (hud_config)
+      lines = dsda_SplitString(hud_config, "\n\r");
 
-    killcolor = (fullkillcount >= max_kill_requirement ? 0x30 + g_cr_blue : 0x30 + g_cr_gold);
-    secretcolor = (fullsecretcount >= totalsecret ? 0x30 + g_cr_blue : 0x30 + g_cr_gold);
-    itemcolor = (fullitemcount >= totalitems ? 0x30 + g_cr_blue : 0x30 + g_cr_gold);
+    loaded = true;
+  }
 
-    if (playerscount < 2) {
-      snprintf(
-        dsda_exhud_max_totals.msg,
-        sizeof(dsda_exhud_max_totals.msg),
-        "\x1b%cK \x1b%c%d/%d \x1b%cI \x1b%c%d/%d \x1b%cS \x1b%c%d/%d",
-        0x30 + g_cr_red,
-        killcolor, fullkillcount, max_kill_requirement,
-        0x30 + g_cr_red,
-        itemcolor, players[displayplayer].itemcount, totalitems,
-        0x30 + g_cr_red,
-        secretcolor, fullsecretcount, totalsecret
-      );
-    }
-    else {
-      snprintf(
-        dsda_exhud_max_totals.msg,
-        sizeof(dsda_exhud_max_totals.msg),
-        "\x1b%cK %s \x1b%c%d/%d \x1b%cI \x1b%c%d/%d \x1b%cS %s \x1b%c%d/%d",
-        0x30 + g_cr_red,
-        allkills, killcolor, fullkillcount, max_kill_requirement,
-        0x30 + g_cr_red,
-        itemcolor, players[displayplayer].itemcount, totalitems,
-        0x30 + g_cr_red,
-        allsecrets, secretcolor, fullsecretcount, totalsecret
-      );
+  return lines;
+}
+
+void dsda_InitExHud(void) {
+  int i;
+  char** hud_config;
+  const char* line;
+  int line_i;
+  char target[16];
+  dboolean reading = false;
+  char command[64];
+  char args[64];
+  int count;
+
+  exhud_color_default = CR_GRAY;
+  exhud_color_warning = CR_GREEN;
+  exhud_color_alert = CR_RED;
+
+  for (i = 0; i < exhud_component_count; ++i) {
+    components[i].on = false;
+    components[i].initialized = false;
+  }
+
+  if (R_FullView() && !dsda_IntConfig(dsda_config_hud_displayed))
+    return;
+
+  hud_config = dsda_HUDConfig();
+
+  if (!hud_config)
+    return;
+
+  snprintf(target, sizeof(target), "%s %s",
+           hexen ? "hexen" : heretic ? "heretic" : "doom",
+           R_FullView() ? "full" : "ex");
+
+  for (line_i = 0; hud_config[line_i]; ++line_i) {
+    line = hud_config[line_i];
+
+    if (!strncmp(target, line, sizeof(target)))
+      reading = true;
+    else if (reading) {
+      int count;
+      dboolean found = false;
+
+      if (line[0] == '#' || line[0] == '/' || line[0] == '!' || !line[0])
+        continue;
+
+      count = sscanf(line, "%63s %63[^\n\r]", command, args);
+      if (count != 2)
+        I_Error("Invalid hud definition \"%s\"", line);
+
+      // The start of another definition
+      if (!strncmp(command, "doom", sizeof(command)) ||
+          !strncmp(command, "heretic", sizeof(command)) ||
+          !strncmp(command, "hexen", sizeof(command)))
+        break;
+
+      for (i = 0; i < exhud_component_count; ++i)
+        if (!strncmp(command, components[i].name, sizeof(command))) {
+          int x, y, vpt, always_on;
+          char alignment[16];
+
+          found = true;
+
+          count = sscanf(args, "%d %d %15s %d", &x, &y, alignment, &always_on);
+          if (count != 4)
+            I_Error("Invalid hud component args \"%s\"", line);
+
+          if (!strncmp(alignment, "bottom_left", sizeof(alignment)))
+            vpt = VPT_ALIGN_LEFT_BOTTOM;
+          else if (!strncmp(alignment, "bottom_right", sizeof(alignment)))
+            vpt = VPT_ALIGN_RIGHT_BOTTOM;
+          else if (!strncmp(alignment, "top_left", sizeof(alignment)))
+            vpt = VPT_ALIGN_LEFT_TOP;
+          else if (!strncmp(alignment, "top_right", sizeof(alignment)))
+            vpt = VPT_ALIGN_RIGHT_TOP;
+          else
+            I_Error("Invalid hud component alignment \"%s\"", line);
+
+          dsda_InitializeComponent(i, x, y, vpt);
+
+          if (always_on)
+            dsda_TurnComponentOn(i);
+          else
+            dsda_TurnComponentOff(i);
+        }
+
+      if (!found)
+        I_Error("Invalid hud component \"%s\"", line);
     }
   }
 
-  dsda_RefreshHudText(&dsda_exhud_max_totals);
+  if (dsda_show_render_stats)
+    dsda_TurnComponentOn(exhud_render_stats);
+
+  dsda_RefreshExHudFPS();
+}
+
+void dsda_UpdateExHud(void) {
+  int i;
+
+  for (i = 0; i < exhud_component_count; ++i)
+    if (components[i].on && (!components[i].strict || !dsda_StrictMode()))
+      components[i].update();
 }
 
 void dsda_DrawExHud(void) {
-  HUlib_drawTextLine(&dsda_exhud_timer.text, false);
-  HUlib_drawTextLine(&dsda_exhud_max_totals.text, false);
+  int i;
+
+  for (i = 0; i < exhud_component_count; ++i)
+    if (components[i].on && (!components[i].strict || !dsda_StrictMode()))
+      components[i].draw();
 }
 
 void dsda_EraseExHud(void) {
-  HUlib_eraseTextLine(&dsda_exhud_timer.text);
-  HUlib_eraseTextLine(&dsda_exhud_max_totals.text);
+  int i;
+
+  for (i = 0; i < exhud_component_count; ++i)
+    if (components[i].on && (!components[i].strict || !dsda_StrictMode()))
+      components[i].erase();
+}
+
+void dsda_ToggleRenderStats(void) {
+  dsda_show_render_stats = !dsda_show_render_stats;
+
+  if (components[exhud_render_stats].on && !dsda_show_render_stats)
+    dsda_TurnComponentOff(exhud_render_stats);
+  else if (!components[exhud_render_stats].on && dsda_show_render_stats) {
+    dsda_BeginRenderStats();
+    dsda_TurnComponentOn(exhud_render_stats);
+  }
+}
+
+void dsda_RefreshExHudFPS(void) {
+  if (dsda_ShowFPS())
+    dsda_TurnComponentOn(exhud_fps);
+  else
+    dsda_TurnComponentOff(exhud_fps);
 }

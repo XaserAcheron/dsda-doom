@@ -46,54 +46,6 @@
 // VIDEO
 //
 
-typedef enum
-{
-  patch_stretch_16x10,
-  patch_stretch_4x3,
-  patch_stretch_full,
-
-  patch_stretch_max
-} patch_stretch_t;
-
-typedef struct
-{
-   fixed_t     xstep, ystep;
-
-   int width, height;
-
-   // SoM 1-31-04: This will insure that scaled patches and such are put in the right places
-   short x1lookup[321];
-   short y1lookup[201];
-   short x2lookup[321];
-   short y2lookup[201];
-} cb_video_t;
-
-typedef struct stretch_param_s
-{
-  cb_video_t *video;
-  int deltax1;
-  int deltay1;
-  int deltax2;
-  int deltay2;
-} stretch_param_t;
-
-extern stretch_param_t stretch_params_table[3][VPT_ALIGN_MAX];
-extern stretch_param_t *stretch_params;
-
-extern cb_video_t video;
-extern cb_video_t video_stretch;
-extern cb_video_t video_full;
-extern int patches_scalex;
-extern int patches_scaley;
-
-extern const char *render_aspects_list[];
-extern const char *render_stretch_list[];
-
-extern int render_stretch_hud;
-extern int render_stretch_hud_default;
-extern int render_patches_scalex;
-extern int render_patches_scaley;
-
 // DWF 2012-05-10
 // SetRatio sets the following global variables based on window geometry and
 // user preferences. The integer ratio is hardly used anymore, so further
@@ -121,7 +73,7 @@ typedef enum
   CR_GREEN,   //3
   CR_BROWN,   //4
   CR_GOLD,    //5
-  CR_RED,     //6
+  CR_DEFAULT, //6
   CR_BLUE,    //7
   CR_ORANGE,  //8
   CR_YELLOW,  //9
@@ -129,11 +81,10 @@ typedef enum
   CR_BLACK,   //11
   CR_PURPLE,  //12
   CR_WHITE,   //13
-  CR_LIMIT    //14 //jff 2/27/98 added for range check
+  CR_RED,     //14
+  CR_LIMIT    //15 //jff 2/27/98 added for range check
 } crange_idx_e;
 //jff 1/16/98 end palette color range additions
-
-#define CR_DEFAULT CR_RED   /* default value for out of range colors */
 
 typedef struct {
   byte *data;          // pointer to the screen content
@@ -172,8 +123,6 @@ typedef enum {
   VID_MODEMAX
 } video_mode_t;
 
-extern const char *default_videomode;
-
 void V_InitMode(video_mode_t mode);
 
 // video mode query interface
@@ -194,6 +143,8 @@ typedef void (*V_CopyRect_f)(int srcscrn, int destscrn,
                              int width, int height,
                              enum patch_translation_e flags);
 extern V_CopyRect_f V_CopyRect;
+
+void V_CopyScreen(int srcscrn, int destscrn);
 
 // V_FillRect
 typedef void (*V_FillRect_f)(int scrn, int x, int y,
@@ -300,9 +251,7 @@ int V_BestColor(const unsigned char *palette, int r, int g, int b);
 // [FG] colored blood and gibs
 int V_BloodColor(int blood);
 
-#ifdef GL_DOOM
 #include "gl_struct.h"
-#endif
 
 void V_FillRectStretch(int scrn, int x, int y, int width, int height, byte color);
 

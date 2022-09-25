@@ -41,6 +41,8 @@
 #include "r_main.h"
 #include "e6y.h"
 
+#include "dsda/configuration.h"
+#include "dsda/mapinfo.h"
 #include "dsda/settings.h"
 
 //
@@ -50,7 +52,6 @@ int skyflatnum;
 int skytexture;
 int skytexturemid;
 
-int r_stretchsky = 1;
 int skystretch;
 fixed_t freelookviewheight;
 
@@ -60,6 +61,10 @@ fixed_t freelookviewheight;
 //
 void R_InitSkyMap(void)
 {
+  int r_stretchsky;
+
+  r_stretchsky = dsda_IntConfig(dsda_config_render_stretchsky);
+
   if (!dsda_MouseLook())
   {
     skystretch = false;
@@ -123,22 +128,4 @@ void R_InitSkyMap(void)
       skytexturemid = 100*FRACUNIT;
     }
   }
-}
-
-// hexen
-
-#include "p_setup.h"
-
-void R_InitSky(int map)
-{
-    extern fixed_t Sky1ScrollDelta;
-    extern fixed_t Sky2ScrollDelta;
-
-    Sky1Texture = P_GetMapSky1Texture(map);
-    Sky2Texture = P_GetMapSky2Texture(map);
-    Sky1ScrollDelta = P_GetMapSky1ScrollDelta(map);
-    Sky2ScrollDelta = P_GetMapSky2ScrollDelta(map);
-    Sky1ColumnOffset = 0;
-    Sky2ColumnOffset = 0;
-    DoubleSky = P_GetMapDoubleSky(map);
 }

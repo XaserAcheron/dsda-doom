@@ -66,12 +66,15 @@ const music_player_t fl_player =
 #else // HAVE_LIBFLUIDSYNTH
 
 #include <fluidsynth.h>
-#include "i_sound.h" // for snd_soundfont, mus_fluidsynth_gain
+#include <stdlib.h>
+#include <string.h>
 #include "i_system.h" // for I_FindFile()
 #include "lprintf.h"
 #include "midifile.h"
-#include <stdlib.h>
-#include <string.h>
+#include "memio.h"
+#include "w_wad.h"
+
+#include "dsda/configuration.h"
 
 static fluid_settings_t *f_set;
 static fluid_synth_t *f_syn;
@@ -105,9 +108,57 @@ static const char *fl_name (void)
 #include <delayimp.h>
 #endif
 
+static void *fl_sfopen(const char *lumpname)
+{
+  MEMFILE *instream;
+  int lumpnum = W_GetNumForName(lumpname);
+  int len = W_LumpLength(lumpnum);
+  const void *data = W_LumpByNum(lumpnum);
+
+  instream = mem_fopen_read(data, len);
+
+  return instream;
+}
+
+static int fl_sfread(void *buf, long long count, void *handle)
+{
+  if (mem_fread(buf, sizeof(byte), count, (MEMFILE *)handle) == count)
+  {
+    return FLUID_OK;
+  }
+  return FLUID_FAILED;
+}
+
+static int fl_sfseek(void *handle, long long offset, int origin)
+{
+  if (mem_fseek((MEMFILE *)handle, offset, origin) < 0)
+  {
+    return FLUID_FAILED;
+  }
+  return FLUID_OK;
+}
+
+static int fl_sfclose(void *handle)
+{
+  mem_fclose((MEMFILE *)handle);
+  return FLUID_OK;
+}
+
+static long long fl_sftell(void *handle)
+{
+  return mem_ftell((MEMFILE *)handle);
+}
+
 static int fl_init (int samplerate)
 {
+  int mus_fluidsynth_chorus;
+  int mus_fluidsynth_reverb;
+  int mus_fluidsynth_gain;
   const char *filename;
+
+  mus_fluidsynth_chorus = dsda_IntConfig(dsda_config_mus_fluidsynth_chorus);
+  mus_fluidsynth_reverb = dsda_IntConfig(dsda_config_mus_fluidsynth_reverb);
+  mus_fluidsynth_gain = dsda_IntConfig(dsda_config_mus_fluidsynth_gain);
 
   f_soundrate = samplerate;
   // fluidsynth 1.1.4 supports sample rates as low as 8000hz.  earlier versions only go down to 22050hz
@@ -187,15 +238,57 @@ static int fl_init (int samplerate)
     return 0;
   }
 
-  filename = I_FindFile2(snd_soundfont, ".sf2");
-  f_font = fluid_synth_sfload (f_syn, filename, 1);
-
-  if (f_font == FLUID_FAILED)
   {
-    lprintf (LO_WARN, "fl_init: error loading soundfont %s\n", snd_soundfont);
-    delete_fluid_synth (f_syn);
-    delete_fluid_settings (f_set);
-    return 0;
+    int lumpnum;
+    int checked_file = false;
+    dboolean replaced_soundfont = false;
+    const char *checked_f_font = NULL;
+    const char *snd_soundfont;
+
+    lumpnum = W_CheckNumForName("SNDFONT");
+
+    if (lumpnum != LUMP_NOT_FOUND)
+    {
+      replaced_soundfont = !W_LumpNumInPortWad(lumpnum);
+    }
+
+    snd_soundfont = dsda_StringConfig(dsda_config_snd_soundfont);
+
+    if (!replaced_soundfont && snd_soundfont && snd_soundfont[0])
+    {
+      checked_file = true;
+      checked_f_font = snd_soundfont;
+      filename = I_FindFile2(snd_soundfont, ".sf2");
+      f_font = fluid_synth_sfload (f_syn, filename, 1);
+    }
+
+    if ((!checked_file || f_font == FLUID_FAILED) && lumpnum >= 0)
+    {
+      fluid_sfloader_t *sfloader;
+
+      checked_f_font = "SNDFONT";
+      sfloader = new_fluid_defsfloader(f_set);
+      fluid_sfloader_set_callbacks(sfloader, fl_sfopen, fl_sfread, fl_sfseek,
+                                   fl_sftell, fl_sfclose);
+      fluid_synth_add_sfloader(f_syn, sfloader);
+      f_font = fluid_synth_sfload(f_syn, "SNDFONT", 1);
+    }
+
+    if (!checked_f_font)
+    {
+      lprintf(LO_WARN, "fl_init: no soundfont detected!\n");
+      delete_fluid_synth (f_syn);
+      delete_fluid_settings (f_set);
+      return 0;
+    }
+
+    if (f_font == FLUID_FAILED)
+    {
+      lprintf (LO_WARN, "fl_init: error loading soundfont %s\n", checked_f_font);
+      delete_fluid_synth (f_syn);
+      delete_fluid_settings (f_set);
+      return 0;
+    }
   }
 
   return 1;

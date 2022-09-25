@@ -45,7 +45,6 @@
 #include "p_setup.h"
 #include "m_random.h"
 #include "d_englsh.h"
-#include "m_argv.h"
 #include "w_wad.h"
 #include "r_main.h"
 #include "p_maputl.h"
@@ -63,8 +62,10 @@
 #include "hu_stuff.h"
 #include "lprintf.h"
 #include "e6y.h"//e6y
-#include "dsda.h"
 
+#include "dsda.h"
+#include "dsda/args.h"
+#include "dsda/configuration.h"
 #include "dsda/global.h"
 #include "dsda/line_special.h"
 #include "dsda/map_format.h"
@@ -133,11 +134,10 @@ line_t *linespeciallist[MAXLINEANIMS];
 //e6y
 void MarkAnimatedTextures(void)
 {
-#ifdef GL_DOOM
   anim_t* anim;
 
-  anim_textures = calloc(numtextures, sizeof(TAnimItemParam));
-  anim_flats = calloc(numflats, sizeof(TAnimItemParam));
+  anim_textures = Z_Calloc(numtextures, sizeof(TAnimItemParam));
+  anim_flats = Z_Calloc(numflats, sizeof(TAnimItemParam));
 
   for (anim = anims ; anim < lastanim ; anim++)
   {
@@ -156,7 +156,6 @@ void MarkAnimatedTextures(void)
       }
     }
   }
-#endif // GL_DOOM
 }
 
 //
@@ -202,7 +201,7 @@ void P_InitPicAnims (void)
   {
     lump = W_GetNumForName("ANIMATED"); // cph - new wad lump handling
     //jff 3/23/98 read from predefined or wad lump instead of table
-    animdefs = (const animdef_t *)W_CacheLumpNum(lump);
+    animdefs = (const animdef_t *)W_LumpByNum(lump);
   }
 
   lastanim = anims;
@@ -212,7 +211,7 @@ void P_InitPicAnims (void)
     if (lastanim >= anims + maxanims)
     {
       size_t newmax = maxanims ? maxanims*2 : MAXANIMS;
-      anims = realloc(anims, newmax*sizeof(*anims));   // killough
+      anims = Z_Realloc(anims, newmax*sizeof(*anims));   // killough
       lastanim = anims + maxanims;
       maxanims = newmax;
     }
@@ -228,7 +227,7 @@ void P_InitPicAnims (void)
     }
     else
     {
-      if ((W_CheckNumForName)(animdefs[i].startname, ns_flats) == -1)  // killough 4/17/98
+      if (!W_LumpNameExists2(animdefs[i].startname, ns_flats))  // killough 4/17/98
           continue;
 
       lastanim->picnum = R_FlatNumForName (animdefs[i].endname);
@@ -247,7 +246,6 @@ void P_InitPicAnims (void)
     lastanim++;
   }
 
-  if (lump != -1) W_UnlockLumpNum(lump);
   MarkAnimatedTextures();//e6y
 }
 
@@ -442,7 +440,7 @@ fixed_t P_FindNextHighestFloor(sector_t *sec, int currentheight)
 
     // 20 adjoining sectors max!
     if (!MAX_ADJOINING_SECTORS)
-      MAX_ADJOINING_SECTORS = M_CheckParm("-doom95") ? 500 : 20;
+      MAX_ADJOINING_SECTORS = dsda_Flag(dsda_arg_doom95) ? 500 : 20;
 
     if (sec->linecount > heightlist_size)
     {
@@ -450,7 +448,7 @@ fixed_t P_FindNextHighestFloor(sector_t *sec, int currentheight)
       {
         heightlist_size = heightlist_size ? heightlist_size * 2 : 128;
       } while (sec->linecount > heightlist_size);
-      heightlist = realloc(heightlist, heightlist_size * sizeof(heightlist[0]));
+      heightlist = Z_Realloc(heightlist, heightlist_size * sizeof(heightlist[0]));
     }
 
     for (i=0, h=0 ;i < sec->linecount ; i++)
@@ -1461,7 +1459,7 @@ static void P_CollectSecretCommon(sector_t *sector, player_t *player)
   player->secretcount++;
   sector->flags &= ~SECF_SECRET;
 
-  if (hudadd_secretarea)
+  if (dsda_IntConfig(dsda_config_hudadd_secretarea))
   {
     int sfx_id = raven ? g_sfx_secret :
                  I_GetSfxLumpNum(&S_sfx[g_sfx_secret]) < 0 ? sfx_itmbk : g_sfx_secret;
@@ -1566,6 +1564,8 @@ void P_CrossHexenSpecialLine(line_t *line, int side, mobj_t *thing, dboolean bos
 void P_CrossCompatibleSpecialLine(line_t *line, int side, mobj_t *thing, dboolean bossaction)
 {
   int ok;
+
+  dsda_WatchLineActivation(line, thing);
 
   //  Things that should never trigger lines
   //
@@ -3146,7 +3146,7 @@ void P_UpdateSpecials (void)
 static void Add_Scroller(int type, fixed_t dx, fixed_t dy,
                          int control, int affectee, int accel)
 {
-  scroll_t *s = Z_Malloc(sizeof *s, PU_LEVEL, 0);
+  scroll_t *s = Z_MallocLevel(sizeof *s);
   s->thinker.function = T_Scroll;
   s->type = type;
   s->dx = dx;
@@ -3679,37 +3679,24 @@ static void P_SpawnExtras(void)
 
 static void P_EvaluateDeathmatchParams(void)
 {
-  int i;
+  dsda_arg_t *arg;
 
-  // See if -timer needs to be used.
   levelTimer = false;
 
-  i = M_CheckParm("-avg");   // Austin Virtual Gaming 20 min timer on DM play
-  if (i && deathmatch)
+  arg = dsda_Arg(dsda_arg_timer);
+  if (arg->found && deathmatch)
   {
     levelTimer = true;
-    levelTimeCount = 20 * 60 * TICRATE;
+    levelTimeCount = arg->value.v_int * 60 * TICRATE;
   }
 
-  i = M_CheckParm("-timer"); // user defined timer on game play
-  if (i && deathmatch)
-  {
-    int time;
-    time = atoi(myargv[i+1]) * 60 * TICRATE;
-    levelTimer = true;
-    levelTimeCount = time;
-  }
-
-  // See if -frags has been used
   levelFragLimit = false;
-  i = M_CheckParm("-frags");  // Ty 03/18/98 Added -frags support
-  if (i && deathmatch)
+
+  arg = dsda_Arg(dsda_arg_frags);
+  if (arg->found && deathmatch)
   {
-    int frags;
-    frags = atoi(myargv[i+1]);
-    if (frags <= 0) frags = 10;  // default 10 if no count provided
     levelFragLimit = true;
-    levelFragLimitCount = frags;
+    levelFragLimitCount = arg->value.v_int;
   }
 }
 
@@ -4013,7 +4000,7 @@ static void P_AddCopyScroller(line_t *l)
   while (copyscroller_count >= copyscroller_max)
   {
     copyscroller_max = copyscroller_max ? copyscroller_max * 2 : 8;
-    copyscrollers = realloc(copyscrollers, copyscroller_max * sizeof(*copyscrollers));
+    copyscrollers = Z_Realloc(copyscrollers, copyscroller_max * sizeof(*copyscrollers));
   }
 
   copyscrollers[copyscroller_count++] = l;
@@ -4044,7 +4031,7 @@ static void P_FreeCopyScrollers(void)
   {
     copyscroller_count = 0;
     copyscroller_max = 0;
-    free(copyscrollers);
+    Z_Free(copyscrollers);
   }
 }
 
@@ -4212,7 +4199,7 @@ static void P_SpawnScrollers(void)
 
 static void Add_Friction(int friction, int movefactor, int affectee)
 {
-    friction_t *f = Z_Malloc(sizeof *f, PU_LEVEL, 0);
+    friction_t *f = Z_MallocLevel(sizeof *f);
 
     f->thinker.function/*.acp1*/ = /*(actionf_p1) */T_Friction;
     f->friction = friction;
@@ -4469,7 +4456,7 @@ static void P_SpawnFriction(void)
 
 static void Add_Pusher(int type, int x_mag, int y_mag, mobj_t* source, int affectee)
 {
-    pusher_t *p = Z_Malloc(sizeof *p, PU_LEVEL, 0);
+    pusher_t *p = Z_MallocLevel(sizeof *p);
 
     p->thinker.function = T_Pusher;
     p->source = source;
@@ -4814,8 +4801,6 @@ static void P_SpawnPushers(void)
 
 #include "heretic/def.h"
 
-#define MAX_AMBIENT_SFX 8
-
 typedef enum
 {
     afxcmd_play,                // (sound)
@@ -4828,6 +4813,7 @@ typedef enum
 
 int *LevelAmbientSfx[MAX_AMBIENT_SFX];
 int *AmbSfxPtr;
+int AmbSfxPtrIndex;
 int AmbSfxCount;
 int AmbSfxTics;
 int AmbSfxVolume;
@@ -4996,6 +4982,7 @@ void P_InitAmbientSound(void)
     AmbSfxCount = 0;
     AmbSfxVolume = 0;
     AmbSfxTics = 10 * TICRATE;
+    AmbSfxPtrIndex = -1;
     AmbSfxPtr = AmbSndSeqInit;
 }
 
@@ -5051,7 +5038,8 @@ void P_AmbientSound(void)
                 break;
             case afxcmd_end:
                 AmbSfxTics = 6 * TICRATE + P_Random(pr_heretic);
-                AmbSfxPtr = LevelAmbientSfx[P_Random(pr_heretic) % AmbSfxCount];
+                AmbSfxPtrIndex = P_Random(pr_heretic) % AmbSfxCount;
+                AmbSfxPtr = LevelAmbientSfx[AmbSfxPtrIndex];
                 done = true;
                 break;
             default:
@@ -5080,12 +5068,12 @@ void P_InitTerrainTypes(void)
     if (!raven) return;
 
     size = (numflats + 1) * sizeof(int);
-    TerrainTypes = Z_Malloc(size, PU_STATIC, 0);
+    TerrainTypes = Z_Malloc(size);
     memset(TerrainTypes, 0, size);
     for (i = 0; TerrainTypeDefs[hexen][i].type != -1; i++)
     {
-        lump = (W_CheckNumForName)(TerrainTypeDefs[hexen][i].name, ns_flats);
-        if (lump != -1)
+        lump = W_CheckNumForName2(TerrainTypeDefs[hexen][i].name, ns_flats);
+        if (lump != LUMP_NOT_FOUND)
         {
             TerrainTypes[lump - firstflat] = TerrainTypeDefs[hexen][i].type;
         }
@@ -5536,8 +5524,8 @@ static dboolean CheckedLockedDoor(mobj_t * mo, byte lock)
     }
     if (!mo->player->cards[lock - 1])
     {
-        doom_snprintf(LockedBuffer, sizeof(LockedBuffer),
-                   "YOU NEED THE %s\n", TextKeyMessages[lock - 1]);
+        snprintf(LockedBuffer, sizeof(LockedBuffer),
+                 "YOU NEED THE %s\n", TextKeyMessages[lock - 1]);
         P_SetMessage(mo->player, LockedBuffer, true);
         S_StartSound(mo, hexen_sfx_door_locked);
         return false;
@@ -6818,6 +6806,81 @@ dboolean P_ExecuteZDoomLineSpecial(int special, byte * args, line_t * line, int 
     case zl_exit_secret:
       G_SecretExitLevel(); // args[0] is position
       buttonSuccess = 1;
+      break;
+    case zl_polyobj_rotate_left:
+      buttonSuccess = EV_RotatePoly(line, args, 1, false);
+      break;
+    case zl_polyobj_or_rotate_left:
+      buttonSuccess = EV_RotatePoly(line, args, 1, true);
+      break;
+    case zl_polyobj_rotate_right:
+      buttonSuccess = EV_RotatePoly(line, args, -1, false);
+      break;
+    case zl_polyobj_or_rotate_right:
+      buttonSuccess = EV_RotatePoly(line, args, -1, true);
+      break;
+    case zl_polyobj_move:
+      buttonSuccess = EV_MovePoly(line, args, false, false);
+      break;
+    case zl_polyobj_or_move:
+      buttonSuccess = EV_MovePoly(line, args, false, true);
+      break;
+    case zl_polyobj_move_times_8:
+      buttonSuccess = EV_MovePoly(line, args, true, false);
+      break;
+    case zl_polyobj_or_move_times_8:
+      buttonSuccess = EV_MovePoly(line, args, true, true);
+      break;
+    case zl_polyobj_door_swing:
+      buttonSuccess = EV_OpenPolyDoor(line, args, PODOOR_SWING);
+      break;
+    case zl_polyobj_door_slide:
+      buttonSuccess = EV_OpenPolyDoor(line, args, PODOOR_SLIDE);
+      break;
+    case zl_polyobj_move_to:
+      buttonSuccess = EV_MovePolyTo(line, args[0], P_ArgToSpeed(args[1]),
+                                    args[2] << FRACBITS, args[3] << FRACBITS, false);
+      break;
+    case zl_polyobj_or_move_to:
+      buttonSuccess = EV_MovePolyTo(line, args[0], P_ArgToSpeed(args[1]),
+                                    args[2] << FRACBITS, args[3] << FRACBITS, true);
+      break;
+    case zl_polyobj_move_to_spot:
+      {
+        mobj_t *dest;
+        thing_id_search_t search;
+
+        dsda_ResetThingIDSearch(&search);
+        dest = dsda_FindMobjFromThingID(args[2], &search);
+
+        if (!dest)
+        {
+          break;
+        }
+
+        buttonSuccess = EV_MovePolyTo(line, args[0], P_ArgToSpeed(args[1]),
+                                      dest->x, dest->y, false);
+      }
+      break;
+    case zl_polyobj_or_move_to_spot:
+      {
+        mobj_t *dest;
+        thing_id_search_t search;
+
+        dsda_ResetThingIDSearch(&search);
+        dest = dsda_FindMobjFromThingID(args[2], &search);
+
+        if (!dest)
+        {
+          break;
+        }
+
+        buttonSuccess = EV_MovePolyTo(line, args[0], P_ArgToSpeed(args[1]),
+                                      dest->x, dest->y, true);
+      }
+      break;
+    case zl_polyobj_stop:
+      buttonSuccess = EV_StopPoly(args[0]);
       break;
     case zl_thing_move:
       {

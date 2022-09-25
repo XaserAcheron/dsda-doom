@@ -25,6 +25,7 @@
 #include "st_stuff.h"
 #include "r_draw.h"
 
+#include "dsda/pause.h"
 #include "dsda/settings.h"
 
 #include "heretic/def.h"
@@ -253,7 +254,7 @@ void SB_Init(void)
 
     for (i = 0; i < 11; ++i)
     {
-      lumparti[i] = (W_CheckNumForName)(heretic_namearti[i], ns_sprites);
+      lumparti[i] = W_CheckNumForName2(heretic_namearti[i], ns_sprites);
     }
 
     LumpLTFACE = W_GetNumForName("LTFACE");
@@ -317,7 +318,7 @@ void SB_Ticker(void)
     int delta;
     int curHealth;
 
-    if (heretic && leveltime & 1 && !paused_outside_demo)
+    if (heretic && leveltime & 1 && !dsda_PausedOutsideDemo())
     {
         ChainWiggle = P_Random(pr_heretic) & 1;
     }
@@ -550,7 +551,7 @@ void SB_Drawer(dboolean statusbaron, dboolean refresh, dboolean fullmenu)
     }
 
     CPlayer = &players[consoleplayer];
-    if (viewheight == SCREENHEIGHT && !(automapmode & am_active))
+    if (R_FullView() && !automap_active)
     {
         DrawFullScreenStuff();
         SB_state = -1;
@@ -587,7 +588,7 @@ void SB_Drawer(dboolean statusbaron, dboolean refresh, dboolean fullmenu)
                 }
                 else
                 {
-                  if (!(automapmode & am_active))
+                  if (!automap_active)
                   {
                       V_DrawNumPatch(38, 162, 0, LumpSTATBAR, CR_DEFAULT, VPT_STRETCH);
                   }
@@ -607,7 +608,7 @@ void SB_Drawer(dboolean statusbaron, dboolean refresh, dboolean fullmenu)
                 oldlife = -1;
                 oldkeys = -1;
             }
-            if (heretic || !(automapmode & am_active))
+            if (heretic || !automap_active)
             {
                 DrawMainBar();
             }
@@ -1050,7 +1051,7 @@ static void Hexen_SB_Init(void)
 
     for (i = 0; i < 33; ++i)
     {
-      lumparti[i] = (W_CheckNumForName)(hexen_namearti[i], ns_sprites);
+      lumparti[i] = W_CheckNumForName2(hexen_namearti[i], ns_sprites);
     }
 
     LumpH2BAR = W_GetNumForName("H2BAR");

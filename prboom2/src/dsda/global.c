@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "m_argv.h"
 #include "info.h"
 #include "d_items.h"
 #include "p_inter.h"
@@ -32,6 +31,8 @@
 
 #include "global.h"
 
+#include "dsda/args.h"
+#include "dsda/map_format.h"
 #include "dsda/mobjinfo.h"
 #include "dsda/music.h"
 #include "dsda/sfx.h"
@@ -49,6 +50,7 @@ weaponinfo_t* weaponinfo;
 
 int g_maxplayers = 4;
 int g_viewheight = 41 * FRACUNIT;
+int g_numammo;
 
 int g_mt_player;
 int g_mt_tfog;
@@ -114,6 +116,7 @@ int g_sfx_menu;
 int g_sfx_respawn;
 int g_sfx_secret;
 int g_sfx_revive;
+int g_sfx_console;
 
 int g_door_normal;
 int g_door_raise_in_5_mins;
@@ -123,12 +126,6 @@ int g_st_height;
 int g_border_offset;
 int g_mf_translucent;
 int g_mf_shadow;
-
-int g_cr_gray;
-int g_cr_green;
-int g_cr_gold;
-int g_cr_red;
-int g_cr_blue;
 
 const char* g_menu_flat;
 patchnum_t* g_menu_font;
@@ -166,6 +163,7 @@ static void dsda_InitDoom(void) {
 
   g_maxplayers = 4;
   g_viewheight = 41 * FRACUNIT;
+  g_numammo = DOOM_NUMAMMO;
 
   g_mt_player = MT_PLAYER;
   g_mt_tfog = MT_TFOG;
@@ -198,6 +196,7 @@ static void dsda_InitDoom(void) {
   g_sfx_menu = sfx_pstop;
   g_sfx_secret = sfx_secret;
   g_sfx_revive = sfx_slop;
+  g_sfx_console = sfx_radio;
 
   g_door_normal = normal;
   g_door_raise_in_5_mins = waitRaiseDoor;
@@ -207,12 +206,6 @@ static void dsda_InitDoom(void) {
   g_border_offset = 8;
   g_mf_translucent = MF_TRANSLUCENT;
   g_mf_shadow = MF_SHADOW;
-
-  g_cr_gray = CR_GRAY;
-  g_cr_green = CR_GREEN;
-  g_cr_gold = CR_GOLD;
-  g_cr_red = CR_RED;
-  g_cr_blue = CR_BLUE;
 
   g_menu_flat = "FLOOR4_6";
   g_menu_font = hu_font;
@@ -268,6 +261,7 @@ static void dsda_InitDoom(void) {
 
     // misc
     mobjinfo[i].bloodcolor = 0; // default
+    mobjinfo[i].visibility = VF_DOOM;
   }
 
   // don't want to reorganize info.c structure for a few tweaks...
@@ -314,6 +308,7 @@ static void dsda_InitHeretic(void) {
 
   g_maxplayers = 4;
   g_viewheight = 41 * FRACUNIT;
+  g_numammo = HERETIC_NUMAMMO;
 
   g_mt_player = HERETIC_MT_PLAYER;
   g_mt_tfog = HERETIC_MT_TFOG;
@@ -379,6 +374,7 @@ static void dsda_InitHeretic(void) {
   g_sfx_respawn = heretic_sfx_respawn;
   g_sfx_secret = heretic_sfx_chat;
   g_sfx_revive = heretic_sfx_telept;
+  g_sfx_console = heretic_sfx_chat;
 
   g_door_normal = vld_normal;
   g_door_raise_in_5_mins = vld_raiseIn5Mins;
@@ -389,22 +385,16 @@ static void dsda_InitHeretic(void) {
   g_mf_translucent = MF_SHADOW;
   g_mf_shadow = 0; // doesn't exist in heretic
 
-  g_cr_gray = CR_TAN;
-  g_cr_green = CR_YELLOW;
-  g_cr_gold = CR_ORANGE;
-  g_cr_red = CR_GOLD;
-  g_cr_blue = CR_BROWN;
-
   g_menu_flat = "FLOOR30";
   g_menu_font = hu_font2;
   g_menu_save_page_size = 5;
   g_menu_font_spacing = 0;
-  g_menu_cr_title = g_cr_gold;
-  g_menu_cr_set = g_cr_green;
-  g_menu_cr_item = g_cr_red;
-  g_menu_cr_hilite = g_cr_blue;
-  g_menu_cr_select = g_cr_gray;
-  g_menu_cr_disable = g_cr_gray;
+  g_menu_cr_title = CR_GOLD;
+  g_menu_cr_set = CR_GREEN;
+  g_menu_cr_item = CR_RED;
+  g_menu_cr_hilite = CR_ORANGE;
+  g_menu_cr_select = CR_GRAY;
+  g_menu_cr_disable = CR_GRAY;
 
   g_skyflatname = "F_SKY1";
 
@@ -450,6 +440,7 @@ static void dsda_InitHeretic(void) {
 
     // misc
     mobjinfo[j].bloodcolor = 0; // default
+    mobjinfo[j].visibility = VF_HERETIC;
   }
 
   // heretic doesn't use "clip" concept
@@ -480,6 +471,7 @@ static void dsda_InitHexen(void) {
 
   g_maxplayers = 8;
   g_viewheight = 48 * FRACUNIT;
+  g_numammo = NUMMANA;
 
   // g_mt_player = HERETIC_MT_PLAYER;
   g_mt_tfog = HEXEN_MT_TFOG;
@@ -541,28 +533,23 @@ static void dsda_InitHexen(void) {
   g_sfx_respawn = hexen_sfx_respawn;
   g_sfx_secret = hexen_sfx_chat;
   g_sfx_revive = hexen_sfx_teleport;
+  g_sfx_console = hexen_sfx_chat;
 
   g_st_height = 39;
   g_border_offset = 4;
   g_mf_translucent = MF_SHADOW; // hexen_note: how does ALTSHADOW fit in?
   g_mf_shadow = 0; // doesn't exist in hexen
 
-  g_cr_gray = CR_TAN;
-  g_cr_green = CR_GREEN;
-  g_cr_gold = CR_ORANGE;
-  g_cr_red = CR_YELLOW;
-  g_cr_blue = CR_GOLD;
-
   g_menu_flat = "F_032";
   g_menu_font = hu_font2;
   g_menu_save_page_size = 5;
   g_menu_font_spacing = 0;
-  g_menu_cr_title = 2;
-  g_menu_cr_set = g_cr_blue;
-  g_menu_cr_item = g_cr_red;
-  g_menu_cr_hilite = g_cr_gold;
-  g_menu_cr_select = g_cr_gray;
-  g_menu_cr_disable = g_cr_gray;
+  g_menu_cr_title = CR_GOLD;
+  g_menu_cr_set = CR_GREEN;
+  g_menu_cr_item = CR_RED;
+  g_menu_cr_hilite = CR_ORANGE;
+  g_menu_cr_select = CR_GRAY;
+  g_menu_cr_disable = CR_GRAY;
 
   g_skyflatname = "F_SKY";
 
@@ -608,6 +595,7 @@ static void dsda_InitHexen(void) {
 
     // misc
     mobjinfo[j].bloodcolor = 0; // default
+    mobjinfo[j].visibility = VF_HEXEN;
   }
 
   {
@@ -619,11 +607,12 @@ static void dsda_InitHexen(void) {
 
 static dboolean dsda_AutoDetectHeretic(void)
 {
+  dsda_arg_t* arg;
   int i, length;
-  i = M_CheckParm("-iwad");
-  if (i && (++i < myargc)) {
-    length = strlen(myargv[i]);
-    if (length >= 11 && !strnicmp(myargv[i] + length - 11, "heretic.wad", 11))
+  arg = dsda_Arg(dsda_arg_iwad);
+  if (arg->found) {
+    length = strlen(arg->value.v_string);
+    if (length >= 11 && !strnicmp(arg->value.v_string + length - 11, "heretic.wad", 11))
       return true;
   }
 
@@ -632,11 +621,12 @@ static dboolean dsda_AutoDetectHeretic(void)
 
 static dboolean dsda_AutoDetectHexen(void)
 {
+  dsda_arg_t* arg;
   int i, length;
-  i = M_CheckParm("-iwad");
-  if (i && (++i < myargc)) {
-    length = strlen(myargv[i]);
-    if (length >= 9 && !strnicmp(myargv[i] + length - 9, "hexen.wad", 9))
+  arg = dsda_Arg(dsda_arg_iwad);
+  if (arg->found) {
+    length = strlen(arg->value.v_string);
+    if (length >= 9 && !strnicmp(arg->value.v_string + length - 9, "hexen.wad", 9))
       return true;
   }
 
@@ -646,8 +636,8 @@ static dboolean dsda_AutoDetectHexen(void)
 extern void dsda_ResetNullPClass(void);
 
 void dsda_InitGlobal(void) {
-  heretic = M_CheckParm("-heretic") || dsda_AutoDetectHeretic();
-  hexen = M_CheckParm("-hexen") || dsda_AutoDetectHexen();
+  heretic = dsda_Flag(dsda_arg_heretic) || dsda_AutoDetectHeretic();
+  hexen = dsda_Flag(dsda_arg_hexen) || dsda_AutoDetectHexen();
   raven = heretic || hexen;
 
   if (hexen)

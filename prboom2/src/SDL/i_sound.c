@@ -55,7 +55,6 @@
 
 #include "m_swap.h"
 #include "i_sound.h"
-#include "m_argv.h"
 #include "m_misc.h"
 #include "w_wad.h"
 #include "lprintf.h"
@@ -74,30 +73,12 @@
 
 #include "dsda/settings.h"
 
-int snd_pcspeaker;
+static dboolean registered_non_rw = false;
 
 // The number of internal mixing channels,
 //  the samples calculated for each mixing step,
 //  the size of the 16bit, 2 hardware channel (stereo)
 //  mixing buffer, and the samplerate of the raw data.
-
-// Variables used by Boom from Allegro
-// created here to avoid changes to core Boom files
-int snd_card = 1;
-int mus_card = 1;
-int detect_voices = 0; // God knows
-
-static dboolean registered_non_rw = false;
-
-static dboolean sound_inited = false;
-static dboolean first_sound_init = true;
-
-// Needed for calling the actual sound output.
-#define MAX_CHANNELS    32
-
-// MWM 2000-01-08: Sample rate in samples/second
-int snd_samplerate = 11025;
-int snd_samplecount = 512;
 
 // The actual output device.
 int audio_fd;
@@ -112,6 +93,7 @@ typedef struct
   // ... and a 0.16 bit remainder of last step.
   unsigned int stepremainder;
   unsigned int samplerate;
+  unsigned int bits;
   // The channel data pointers, start and end.
   const unsigned char *data;
   const unsigned char *enddata;
@@ -143,6 +125,24 @@ SDL_mutex *sfxmutex;
 // lock for updating any params related to music
 SDL_mutex *musmutex;
 
+static int pitched_sounds;
+static int snd_pcspeaker;
+int snd_samplerate; // samples per second
+static int snd_samplecount;
+
+static const char *snd_midiplayer;
+
+void I_InitSoundParams(void)
+{
+  pitched_sounds = dsda_IntConfig(dsda_config_pitched_sounds);
+  snd_pcspeaker = dsda_IntConfig(dsda_config_snd_pcspeaker);
+
+  // TODO: can we reinitialize sound with new sample rate / count?
+  if (!snd_samplerate)
+    snd_samplerate = dsda_IntConfig(dsda_config_snd_samplerate);
+  if (!snd_samplecount)
+    snd_samplecount = dsda_IntConfig(dsda_config_snd_samplecount);
+}
 
 /* cph
  * stopchan
@@ -157,6 +157,96 @@ static void stopchan(int i)
   }
 }
 
+typedef struct wav_data_s
+{
+  int sfxid;
+  const unsigned char *data;
+  int samplelen;
+  int samplerate;
+  int bits;
+  struct wav_data_s *next;
+} wav_data_t;
+
+#define WAV_DATA_HASH_SIZE 32
+static wav_data_t *wav_data_hash[WAV_DATA_HASH_SIZE];
+
+static wav_data_t *GetWavData(int sfxid, const unsigned char *data, size_t len)
+{
+  int key;
+  wav_data_t *target = NULL;
+
+  key = (sfxid % WAV_DATA_HASH_SIZE);
+
+  if (wav_data_hash[key])
+  {
+    wav_data_t *rover = wav_data_hash[key];
+
+    while (rover)
+    {
+      if (rover->sfxid == sfxid)
+      {
+        target = rover;
+        break;
+      }
+
+      rover = rover->next;
+    }
+  }
+
+  if (target == NULL &&
+      len > 44 && !memcmp(data, "RIFF", 4) && !memcmp(data + 8, "WAVEfmt ", 8))
+  {
+    SDL_RWops *RWops;
+    SDL_AudioSpec wav_spec;
+    Uint8 *wav_buffer = NULL;
+    int bits, samplelen;
+
+    RWops = SDL_RWFromConstMem(data, len);
+
+    if (SDL_LoadWAV_RW(RWops, 1, &wav_spec, &wav_buffer, &samplelen) == NULL)
+    {
+      lprintf(LO_WARN, "Could not open wav file: %s\n", SDL_GetError());
+      return NULL;
+    }
+
+    if (wav_spec.channels != 1)
+    {
+      lprintf(LO_WARN, "Only mono WAV file is supported");
+      SDL_FreeWAV(wav_buffer);
+      return NULL;
+    }
+
+    if (!SDL_AUDIO_ISINT(wav_spec.format))
+    {
+      lprintf(LO_WARN, "WAV file in unsupported format");
+      SDL_FreeWAV(wav_buffer);
+      return NULL;
+    }
+
+    bits = SDL_AUDIO_BITSIZE(wav_spec.format);
+    if (bits != 8 && bits != 16)
+    {
+      lprintf(LO_WARN, "Only 8 or 16 bit WAV files are supported");
+      SDL_FreeWAV(wav_buffer);
+      return NULL;
+    }
+
+    target = Z_Malloc(sizeof(*target));
+
+    target->sfxid = sfxid;
+    target->data = wav_buffer;
+    target->samplelen = samplelen;
+    target->samplerate = wav_spec.freq;
+    target->bits = bits;
+
+    // use head insertion
+    target->next = wav_data_hash[key];
+    wav_data_hash[key] = target;
+  }
+
+  return target;
+}
+
 //
 // This function adds a sound to the
 //  list of currently active sounds,
@@ -166,21 +256,35 @@ static void stopchan(int i)
 //
 static int addsfx(int sfxid, int channel, const unsigned char *data, size_t len)
 {
+  channel_info_t *ci = channelinfo + channel;
+  wav_data_t *wav_data = GetWavData(sfxid, data, len);
+
   stopchan(channel);
 
-  channelinfo[channel].data = data;
-  /* Set pointer to end of raw data. */
-  channelinfo[channel].enddata = channelinfo[channel].data + len - 1;
-  channelinfo[channel].samplerate = (channelinfo[channel].data[3] << 8) + channelinfo[channel].data[2];
-  channelinfo[channel].data += 8; /* Skip header */
+  if (wav_data)
+  {
+    ci->data = wav_data->data;
+    ci->enddata = ci->data + wav_data->samplelen - 1;
+    ci->samplerate = wav_data->samplerate;
+    ci->bits = wav_data->bits;
+  }
+  else
+  {
+    ci->data = data;
+    /* Set pointer to end of raw data. */
+    ci->enddata = ci->data + len - 1;
+    ci->samplerate = (ci->data[3] << 8) + ci->data[2];
+    ci->data += 8; /* Skip header */
+    ci->bits = 8;
+  }
 
-  channelinfo[channel].stepremainder = 0;
+  ci->stepremainder = 0;
   // Should be gametic, I presume.
-  channelinfo[channel].starttime = gametic;
+  ci->starttime = gametic;
 
   // Preserve sound SFX id,
   //  e.g. for avoiding duplicates of chainsaw.
-  channelinfo[channel].id = sfxid;
+  ci->id = sfxid;
 
   return channel;
 }
@@ -505,9 +609,12 @@ static void I_UpdateSound(void *unused, Uint8 *stream, int len)
     //  as well. Thus loop those  channels.
     for ( chan = 0; chan < numChannels; chan++ )
     {
+      channel_info_t *ci = channelinfo + chan;
+
       // Check channel, if active.
-      if (channelinfo[chan].data)
+      if (ci->data)
       {
+        int s;
         // Get the raw data from the channel.
         // no filtering
         //int s = channelinfo[chan].data[0] * 0x10000 - 0x800000;
@@ -515,9 +622,17 @@ static void I_UpdateSound(void *unused, Uint8 *stream, int len)
         // linear filtering
         // the old SRC did linear interpolation back into 8 bit, and then expanded to 16 bit.
         // this does interpolation and 8->16 at same time, allowing slightly higher quality
-        int s = ((unsigned int)channelinfo[chan].data[0] * (0x10000 - channelinfo[chan].stepremainder))
-              + ((unsigned int)channelinfo[chan].data[1] * (channelinfo[chan].stepremainder))
-              - 0x800000; // convert to signed
+        if (ci->bits == 16)
+        {
+          s = (short)(ci->data[0] | (ci->data[1] << 8)) * (255 - (ci->stepremainder >> 8))
+            + (short)(ci->data[2] | (ci->data[3] << 8)) * (ci->stepremainder >> 8);
+        }
+        else
+        {
+          s = ((unsigned int)ci->data[0] * (0x10000 - ci->stepremainder))
+            + ((unsigned int)ci->data[1] * (ci->stepremainder))
+            - 0x800000; // convert to signed
+        }
 
 
         // Add left and right part
@@ -527,18 +642,23 @@ static void I_UpdateSound(void *unused, Uint8 *stream, int len)
 
         // full loudness (vol=127) is actually 127/191
 
-        dl += channelinfo[chan].leftvol * s / 49152;  // >> 15;
-        dr += channelinfo[chan].rightvol * s / 49152; // >> 15;
+        dl += ci->leftvol * s / 49152;  // >> 15;
+        dr += ci->rightvol * s / 49152; // >> 15;
 
         // Increment index ???
-        channelinfo[chan].stepremainder += channelinfo[chan].step;
+        ci->stepremainder += ci->step;
+
         // MSB is next sample???
-        channelinfo[chan].data += channelinfo[chan].stepremainder >> 16;
+        if (ci->bits == 16)
+          ci->data += (ci->stepremainder >> 16) * 2;
+        else
+          ci->data += ci->stepremainder >> 16;
+
         // Limit to LSB???
-        channelinfo[chan].stepremainder &= 0xffff;
+        ci->stepremainder &= 0xffff;
 
         // Check whether we are done.
-        if (channelinfo[chan].data >= channelinfo[chan].enddata)
+        if (ci->data >= ci->enddata)
           stopchan(chan);
       }
     }
@@ -571,13 +691,16 @@ static void I_UpdateSound(void *unused, Uint8 *stream, int len)
   SDL_UnlockMutex (sfxmutex);
 }
 
+static dboolean sound_was_initialized;
+
 void I_ShutdownSound(void)
 {
-  if (sound_inited)
+  if (sound_was_initialized)
   {
     Mix_CloseAudio();
     SDL_CloseAudio();
-    sound_inited = false;
+
+    sound_was_initialized = false;
 
     if (sfxmutex)
     {
@@ -587,8 +710,6 @@ void I_ShutdownSound(void)
   }
 }
 
-//static SDL_AudioSpec audio;
-
 void I_InitSound(void)
 {
   int audio_rate;
@@ -596,7 +717,9 @@ void I_InitSound(void)
   int audio_buffers;
   SDL_AudioSpec audio;
 
-  // haleyjd: the docs say we should do this
+  if (sound_was_initialized || (nomusicparm && nosfxparm))
+    return;
+
   if (SDL_InitSubSystem(SDL_INIT_AUDIO))
   {
     lprintf(LO_INFO, "Couldn't initialize SDL audio (%s))\n", SDL_GetError());
@@ -604,13 +727,12 @@ void I_InitSound(void)
     nomusicparm = true;
     return;
   }
-  if (sound_inited)
-      I_ShutdownSound();
 
   // Secure and configure sound device first.
   lprintf(LO_INFO, "I_InitSound: ");
 
-  /* Initialize variables */
+  I_InitSoundParams();
+
   audio_rate = snd_samplerate;
   audio_channels = 2;
   audio_buffers = snd_samplecount * snd_samplerate / 11025;
@@ -623,29 +745,26 @@ void I_InitSound(void)
     nomusicparm = true;
     return;
   }
+
   // [FG] feed actual sample frequency back into config variable
   Mix_QuerySpec(&snd_samplerate, NULL, NULL);
-  sound_inited_once = true;//e6y
-  sound_inited = true;
+
+  sound_was_initialized = true;
+
   Mix_SetPostMix(I_UpdateSound, NULL);
+
   lprintf(LO_INFO," configured audio device with %d samples/slice\n", audio_buffers);
 
-  if (first_sound_init)
-  {
-    I_AtExit(I_ShutdownSound, true, "I_ShutdownSound", exit_priority_normal);
-    first_sound_init = false;
-  }
+  I_AtExit(I_ShutdownSound, true, "I_ShutdownSound", exit_priority_normal);
 
   sfxmutex = SDL_CreateMutex ();
 
-  // If we are using the PC speaker, we now need to initialise it.
   if (snd_pcspeaker)
     I_PCS_InitSound();
 
   if (!nomusicparm)
     I_InitMusic();
 
-  // Finished initialization.
   lprintf(LO_INFO, "I_InitSound: sound module ready\n");
   SDL_PauseAudio(0);
 }
@@ -674,7 +793,7 @@ unsigned char *I_GrabSound (int len)
   if (!buffer || size > buffer_size)
   {
     buffer_size = size * 4;
-    buffer = (unsigned char *)realloc (buffer, buffer_size);
+    buffer = (unsigned char *)Z_Realloc (buffer, buffer_size);
   }
 
   if (buffer)
@@ -707,7 +826,7 @@ void I_ResampleStream (void *dest, unsigned nsamp, void (*proc) (void *dest, uns
 
   if (nreq > sinsamp)
   {
-    sin = (short*)realloc (sin, (nreq + 1) * 4);
+    sin = (short*)Z_Realloc (sin, (nreq + 1) * 4);
     if (!sinsamp) // avoid pop when first starting stream
       sin[0] = sin[1] = 0;
     sinsamp = nreq;
@@ -736,7 +855,6 @@ void I_ResampleStream (void *dest, unsigned nsamp, void (*proc) (void *dest, uns
 static void UpdateMusic (void *buff, unsigned nsamp);
 static int RegisterSong (const void *data, size_t len);
 static int RegisterSongEx (const void *data, size_t len, int try_mus2mid);
-static void SetMusicVolume (int volume);
 static void UnRegisterSong(int handle);
 static void StopSong(int handle);
 static void ResumeSong (int handle);
@@ -761,9 +879,6 @@ static SDL_RWops *rwops_stream = NULL;
 
 // note that the "handle" passed around by s_sound is ignored
 // however, a handle is maintained for the individual music players
-
-const char *snd_soundfont; // soundfont name for synths that use it
-const char *snd_mididev; // midi device to use (portmidiplayer)
 
 static const music_player_t *music_players[] =
 { // until some ui work is done, the order these appear is the autodetect order.
@@ -799,9 +914,6 @@ char music_player_order[NUM_MUS_PLAYERS][200] =
   PLAYER_PORTMIDI,
 };
 
-// prefered MIDI device
-const char *snd_midiplayer;
-
 const char *midiplayers[midi_player_last + 1] = {
   "fluidsynth", "opl2", "portmidi", NULL };
 
@@ -809,11 +921,6 @@ static int current_player = -1;
 static const void *music_handle = NULL;
 
 static void *mus2mid_conversion_data = NULL;
-
-int mus_fluidsynth_chorus;
-int mus_fluidsynth_reverb;
-int mus_fluidsynth_gain; // NSM  fine tune fluidsynth output level
-int mus_opl_gain; // NSM  fine tune OPL output level
 
 void I_ShutdownMusic(void)
 {
@@ -845,6 +952,31 @@ void I_InitMusic(void)
   I_AtExit(I_ShutdownMusic, true, "I_ShutdownMusic", exit_priority_normal);
 }
 
+// Derived value (not saved, accounts for muted music)
+static int music_volume;
+
+void I_ResetMusicVolume(void)
+{
+  snd_MusicVolume = dsda_IntConfig(dsda_config_music_volume);
+
+  if (nomusicparm)
+    return;
+
+  if (dsda_MuteMusic())
+    music_volume = 0;
+  else
+    music_volume = snd_MusicVolume;
+
+  Mix_VolumeMusic(music_volume * 8);
+
+  if (music_handle)
+  {
+    SDL_LockMutex(musmutex);
+    music_players[current_player]->setvolume(music_volume);
+    SDL_UnlockMutex(musmutex);
+  }
+}
+
 void I_PlaySong(int handle, int looping)
 {
   if (registered_non_rw)
@@ -858,11 +990,9 @@ void I_PlaySong(int handle, int looping)
     Mix_PlayMusic(music[handle], looping ? -1 : 0);
 
     // haleyjd 10/28/05: make sure volume settings remain consistent
-    I_SetMusicVolume(snd_MusicVolume);
+    I_ResetMusicVolume();
   }
 }
-
-extern int mus_pause_opt; // From m_misc.c
 
 void I_PauseSong (int handle)
 {
@@ -872,7 +1002,7 @@ void I_PauseSong (int handle)
     return;
   }
 
-  switch(mus_pause_opt)
+  switch (dsda_IntConfig(dsda_config_mus_pause_opt))
   {
     case 0:
         I_StopSong(handle);
@@ -899,7 +1029,7 @@ void I_ResumeSong (int handle)
     return;
   }
 
-  switch(mus_pause_opt) {
+  switch (dsda_IntConfig(dsda_config_mus_pause_opt)) {
     case 0:
         I_PlaySong(handle,1);
       break;
@@ -989,25 +1119,6 @@ int I_RegisterSong(const void *data, size_t len)
   return (0);
 }
 
-// Derived value (not saved, accounts for muted music)
-static int music_volume;
-
-void I_SetMusicVolume(int volume)
-{
-  if (dsda_MuteMusic())
-    volume = 0;
-
-  music_volume = volume;
-
-  Mix_VolumeMusic(volume*8);
-  SetMusicVolume (volume);
-}
-
-void I_ResetMusicVolume(void)
-{
-  I_SetMusicVolume(snd_MusicVolume);
-}
-
 static void PlaySong(int handle, int looping)
 {
   if (music_handle)
@@ -1019,15 +1130,13 @@ static void PlaySong(int handle, int looping)
   }
 }
 
-extern int mus_pause_opt; // From m_misc.c
-
 static void PauseSong (int handle)
 {
   if (!music_handle)
     return;
 
   SDL_LockMutex (musmutex);
-  switch (mus_pause_opt)
+  switch (dsda_IntConfig(dsda_config_mus_pause_opt))
   {
     case 0:
       music_players[current_player]->stop ();
@@ -1047,7 +1156,7 @@ static void ResumeSong (int handle)
     return;
 
   SDL_LockMutex (musmutex);
-  switch (mus_pause_opt)
+  switch (dsda_IntConfig(dsda_config_mus_pause_opt))
   {
     case 0: // i'm not sure why we can guarantee looping=true here,
             // but that's what the old code did
@@ -1081,19 +1190,9 @@ static void UnRegisterSong(int handle)
     music_handle = NULL;
     if (mus2mid_conversion_data)
     {
-      free (mus2mid_conversion_data);
+      Z_Free (mus2mid_conversion_data);
       mus2mid_conversion_data = NULL;
     }
-    SDL_UnlockMutex (musmutex);
-  }
-}
-
-static void SetMusicVolume (int volume)
-{
-  if (music_handle)
-  {
-    SDL_LockMutex (musmutex);
-    music_players[current_player]->setvolume (volume);
     SDL_UnlockMutex (musmutex);
   }
 }
@@ -1196,7 +1295,7 @@ static int RegisterSongEx (const void *data, size_t len, int try_mus2mid)
       mem_get_buf(outstream, &outbuf, &outbuf_len);
 
       // recopy so we can free the MEMFILE
-      mus2mid_conversion_data = malloc (outbuf_len);
+      mus2mid_conversion_data = Z_Malloc (outbuf_len);
       if (mus2mid_conversion_data)
         memcpy (mus2mid_conversion_data, outbuf, outbuf_len);
 
@@ -1240,6 +1339,8 @@ static void UpdateMusic (void *buff, unsigned nsamp)
 
 void M_ChangeMIDIPlayer(void)
 {
+  snd_midiplayer = dsda_StringConfig(dsda_config_snd_midiplayer);
+
   if (!strcasecmp(snd_midiplayer, midiplayers[midi_player_fluidsynth]))
   {
     strcpy(music_player_order[3], PLAYER_FLUIDSYNTH);

@@ -59,6 +59,8 @@ typedef struct
   char name[8];
 } filelump_t;
 
+#define LUMP_NOT_FOUND -1
+
 //
 // WADFILE I/O related stuff.
 //
@@ -137,36 +139,42 @@ typedef struct
 extern lumpinfo_t *lumpinfo;
 extern int        numlumps;
 
-// killough 4/17/98: if W_CheckNumForName() called with only
-// one argument, pass ns_global as the default namespace
+int     W_FindNumFromName2(const char *name, int ns, int lump);
 
-#define W_FindNumFromName(name, lump) (W_FindNumFromName)(name, ns_global, lump)
-int     (W_FindNumFromName)(const char *name, int ns, int lump);
+static inline
+int     W_FindNumFromName(const char *name, int lump)
+        { return W_FindNumFromName2(name, ns_global, lump); }
+
+static inline
+int     W_CheckNumForName2(const char *name, int ns)
+        { return W_FindNumFromName2(name, ns, LUMP_NOT_FOUND); }
+
+static inline
+int     W_CheckNumForName(const char *name)
+        { return W_CheckNumForName2(name, ns_global); }
+
 int     W_CheckNumForNameInternal(const char *name);
 int     W_ListNumFromName(const char *name, int lump);
-#define W_CheckNumForName(name) (W_CheckNumForName)(name, ns_global)
-static inline
-int     (W_CheckNumForName)(const char *name, int ns)
-        { return (W_FindNumFromName)(name, ns, -1); }
 int     W_GetNumForName (const char* name);
 const lumpinfo_t* W_GetLumpInfoByNum(int lump);
 int     W_LumpLength (int lump);
 void    W_ReadLump (int lump, void *dest);
+char*   W_ReadLumpToString (int lump);
 // CPhipps - modified for 'new' lump locking
-const void* W_CacheLumpNum (int lump);
+const void* W_LumpByNum (int lump);
 const void* W_LockLumpNum(int lump);
-void    W_UnlockLumpNum(int lump);
+
+int W_LumpNameExists(const char *name);
+int W_LumpNameExists2(const char *name, int ns);
 
 // CPhipps - convenience macros
-//#define W_CacheLumpNum(num) (W_CacheLumpNum)((num),1)
-#define W_CacheLumpName(name) W_CacheLumpNum (W_GetNumForName(name))
-
-//#define W_UnlockLumpNum(num) (W_UnlockLumpNum)((num),1)
-#define W_UnlockLumpName(name) W_UnlockLumpNum (W_GetNumForName(name))
+//#define W_LumpByNum(num) (W_LumpByNum)((num),1)
+#define W_LumpByName(name) W_LumpByNum (W_GetNumForName(name))
 
 char *AddDefaultExtension(char *, const char *);  // killough 1/18/98
 void ExtractFileBase(const char *, char *);       // killough
 unsigned W_LumpNameHash(const char *s);           // killough 1/31/98
 void W_HashLumps(void);                           // cph 2001/07/07 - made public
+int W_LumpNumInPortWad(int lump);
 
 #endif

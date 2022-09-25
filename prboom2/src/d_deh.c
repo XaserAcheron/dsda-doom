@@ -48,7 +48,6 @@
 #include "g_game.h"
 #include "d_think.h"
 #include "w_wad.h"
-#include "m_argv.h"
 #include "m_misc.h"
 #include "v_video.h"
 #include "e6y.h"//e6y
@@ -56,6 +55,7 @@
 // CPhipps - modify to use logical output routine
 #include "lprintf.h"
 
+#include "dsda/args.h"
 #include "dsda/mobjinfo.h"
 #include "dsda/music.h"
 #include "dsda/sfx.h"
@@ -111,9 +111,6 @@ const char * deh_getBitsDelims(void)
     return ",+| \t\f\r";
   }
 }
-
-// If false, dehacked cheat replacements are ignored.
-int deh_apply_cheats = true;
 
 // killough 10/98: new functions, to allow processing DEH files in-memory
 // (e.g. from wads)
@@ -409,26 +406,6 @@ const char *s_THUSTR_29   = THUSTR_29;
 const char *s_THUSTR_30   = THUSTR_30;
 const char *s_THUSTR_31   = THUSTR_31;
 const char *s_THUSTR_32   = THUSTR_32;
-const char *s_HUSTR_CHATMACRO1   = HUSTR_CHATMACRO1;
-const char *s_HUSTR_CHATMACRO2   = HUSTR_CHATMACRO2;
-const char *s_HUSTR_CHATMACRO3   = HUSTR_CHATMACRO3;
-const char *s_HUSTR_CHATMACRO4   = HUSTR_CHATMACRO4;
-const char *s_HUSTR_CHATMACRO5   = HUSTR_CHATMACRO5;
-const char *s_HUSTR_CHATMACRO6   = HUSTR_CHATMACRO6;
-const char *s_HUSTR_CHATMACRO7   = HUSTR_CHATMACRO7;
-const char *s_HUSTR_CHATMACRO8   = HUSTR_CHATMACRO8;
-const char *s_HUSTR_CHATMACRO9   = HUSTR_CHATMACRO9;
-const char *s_HUSTR_CHATMACRO0   = HUSTR_CHATMACRO0;
-const char *s_HUSTR_TALKTOSELF1  = HUSTR_TALKTOSELF1;
-const char *s_HUSTR_TALKTOSELF2  = HUSTR_TALKTOSELF2;
-const char *s_HUSTR_TALKTOSELF3  = HUSTR_TALKTOSELF3;
-const char *s_HUSTR_TALKTOSELF4  = HUSTR_TALKTOSELF4;
-const char *s_HUSTR_TALKTOSELF5  = HUSTR_TALKTOSELF5;
-const char *s_HUSTR_MESSAGESENT  = HUSTR_MESSAGESENT;
-const char *s_HUSTR_PLRGREEN     = HUSTR_PLRGREEN;
-const char *s_HUSTR_PLRINDIGO    = HUSTR_PLRINDIGO;
-const char *s_HUSTR_PLRBROWN     = HUSTR_PLRBROWN;
-const char *s_HUSTR_PLRRED       = HUSTR_PLRRED;
 const char *s_AMSTR_FOLLOWON     = AMSTR_FOLLOWON;
 const char *s_AMSTR_FOLLOWOFF    = AMSTR_FOLLOWOFF;
 const char *s_AMSTR_GRIDON       = AMSTR_GRIDON;
@@ -510,12 +487,6 @@ const char *bgflat30     = "RROCK17";  // DOOM2 after MAP30
 const char *bgflat15     = "RROCK13";  // DOOM2 going MAP15 to MAP31
 const char *bgflat31     = "RROCK19";  // DOOM2 going MAP31 to MAP32
 const char *bgcastcall   = "BOSSBACK"; // Panel behind cast call
-
-const char *startup1     = "";  // blank lines are default and are not printed
-const char *startup2     = "";
-const char *startup3     = "";
-const char *startup4     = "";
-const char *startup5     = "";
 
 /* Ty 05/03/98 - externalized
  * cph - updated for prboom */
@@ -751,30 +722,6 @@ static deh_strs deh_strlookup[] = {
   {&s_THUSTR_30,"THUSTR_30"},
   {&s_THUSTR_31,"THUSTR_31"},
   {&s_THUSTR_32,"THUSTR_32"},
-  {&s_HUSTR_CHATMACRO1,"HUSTR_CHATMACRO1"},
-  {&s_HUSTR_CHATMACRO2,"HUSTR_CHATMACRO2"},
-  {&s_HUSTR_CHATMACRO3,"HUSTR_CHATMACRO3"},
-  {&s_HUSTR_CHATMACRO4,"HUSTR_CHATMACRO4"},
-  {&s_HUSTR_CHATMACRO5,"HUSTR_CHATMACRO5"},
-  {&s_HUSTR_CHATMACRO6,"HUSTR_CHATMACRO6"},
-  {&s_HUSTR_CHATMACRO7,"HUSTR_CHATMACRO7"},
-  {&s_HUSTR_CHATMACRO8,"HUSTR_CHATMACRO8"},
-  {&s_HUSTR_CHATMACRO9,"HUSTR_CHATMACRO9"},
-  {&s_HUSTR_CHATMACRO0,"HUSTR_CHATMACRO0"},
-  {&s_HUSTR_TALKTOSELF1,"HUSTR_TALKTOSELF1"},
-  {&s_HUSTR_TALKTOSELF2,"HUSTR_TALKTOSELF2"},
-  {&s_HUSTR_TALKTOSELF3,"HUSTR_TALKTOSELF3"},
-  {&s_HUSTR_TALKTOSELF4,"HUSTR_TALKTOSELF4"},
-  {&s_HUSTR_TALKTOSELF5,"HUSTR_TALKTOSELF5"},
-  {&s_HUSTR_MESSAGESENT,"HUSTR_MESSAGESENT"},
-  {&s_HUSTR_PLRGREEN,"HUSTR_PLRGREEN"},
-  {&s_HUSTR_PLRINDIGO,"HUSTR_PLRINDIGO"},
-  {&s_HUSTR_PLRBROWN,"HUSTR_PLRBROWN"},
-  {&s_HUSTR_PLRRED,"HUSTR_PLRRED"},
-  //{c_HUSTR_KEYGREEN,"HUSTR_KEYGREEN"},
-  //{c_HUSTR_KEYINDIGO,"HUSTR_KEYINDIGO"},
-  //{c_HUSTR_KEYBROWN,"HUSTR_KEYBROWN"},
-  //{c_HUSTR_KEYRED,"HUSTR_KEYRED"},
   {&s_AMSTR_FOLLOWON,"AMSTR_FOLLOWON"},
   {&s_AMSTR_FOLLOWOFF,"AMSTR_FOLLOWOFF"},
   {&s_AMSTR_GRIDON,"AMSTR_GRIDON"},
@@ -845,13 +792,6 @@ static deh_strs deh_strlookup[] = {
   {&bgflat15,"BGFLAT15"},
   {&bgflat31,"BGFLAT31"},
   {&bgcastcall,"BGCASTCALL"},
-  // Ty 04/08/98 - added 5 general purpose startup announcement
-  // strings for hacker use.  See m_menu.c
-  {&startup1,"STARTUP1"},
-  {&startup2,"STARTUP2"},
-  {&startup3,"STARTUP3"},
-  {&startup4,"STARTUP4"},
-  {&startup5,"STARTUP5"},
   {&savegamename,"SAVEGAMENAME"},  // Ty 05/03/98
 };
 
@@ -1181,7 +1121,7 @@ struct deh_flag_s {
   uint_64_t value;
 };
 
-static uint_64_t deh_translate_bits(uint64_t value, const struct deh_flag_s *flags)
+static uint_64_t deh_translate_bits(uint_64_t value, const struct deh_flag_s *flags)
 {
   int i;
   uint_64_t result = 0;
@@ -1572,6 +1512,7 @@ void deh_changeCompTranslucency(void)
 {
   extern byte* edited_mobjinfo_bits;
   int i;
+  int boom_translucent_sprites;
   int predefined_translucency[] = {
     MT_FIRE, MT_SMOKE, MT_FATSHOT, MT_BRUISERSHOT, MT_SPAWNFIRE,
     MT_TROOPSHOT, MT_HEADSHOT, MT_PLASMA, MT_BFG, MT_ARACHPLAZ, MT_PUFF,
@@ -1580,11 +1521,13 @@ void deh_changeCompTranslucency(void)
 
   if (raven) return;
 
+  boom_translucent_sprites = dsda_IntConfig(dsda_config_boom_translucent_sprites);
+
   for (i = 0; (size_t)i < sizeof(predefined_translucency) / sizeof(predefined_translucency[0]); i++)
   {
     if (!edited_mobjinfo_bits[predefined_translucency[i]])
     {
-      if (comp[comp_translucency])
+      if (comp[comp_translucency] || !boom_translucent_sprites)
         mobjinfo[predefined_translucency[i]].flags &= ~MF_TRANSLUCENT;
       else
         mobjinfo[predefined_translucency[i]].flags |= MF_TRANSLUCENT;
@@ -1675,7 +1618,7 @@ void ProcessDehFile(const char *filename, const char *outfilename, int lumpnum)
   else  // DEH file comes from lump indicated by third argument
   {
     infile.size = W_LumpLength(lumpnum);
-    infile.inp = infile.lump = W_CacheLumpNum(lumpnum);
+    infile.inp = infile.lump = W_LumpByNum(lumpnum);
     // [FG] skip empty DEHACKED lumps
     if (!infile.inp)
     {
@@ -1744,11 +1687,10 @@ void ProcessDehFile(const char *filename, const char *outfilename, int lumpnum)
       continue;
     }
 
-    for (match = 0, i = 0; i < DEH_BLOCKMAX; i++)
+    for (match = 0, i = 0; i < DEH_BLOCKMAX - 1; i++)
       if (!strncasecmp(inbuffer, deh_blocks[i].key, strlen(deh_blocks[i].key)))
       { // matches one
-        if (i < DEH_BLOCKMAX - 1)
-          match = 1;
+        match = 1;
         break;  // we got one, that's enough for this block
       }
 
@@ -1766,9 +1708,7 @@ void ProcessDehFile(const char *filename, const char *outfilename, int lumpnum)
     filepos = dehftell(filein);
   }
 
-  if (infile.lump)
-    W_UnlockLumpNum(lumpnum);                 // Mark purgable
-  else
+  if (!infile.lump)
     fclose(infile.f);                         // Close real file
 
   if (outfilename)   // killough 10/98: only at top recursion level
@@ -2342,12 +2282,6 @@ static void deh_procPointer(DEHFILE *fpin, char *line) // done
       continue;
     }
 
-    if (value < 0)
-    {
-      deh_log("Pointer number must be positive (%d)\n", value);
-      return;
-    }
-
     ptr_state = dsda_GetDehState(value);
 
     if (!deh_strcasecmp(key, deh_state_fields[4]))  // Codep frame (not set in Frame deh block)
@@ -2721,9 +2655,9 @@ static void deh_procCheat(DEHFILE *fpin, char *line) // done
           while (*p == ' ') ++p;
 
           //e6y: ability to ignore cheats in dehacked files.
-          if (deh_apply_cheats && !M_CheckParm("-nocheats"))
+          if (dsda_IntConfig(dsda_config_deh_apply_cheats) && !dsda_Flag(dsda_arg_nocheats))
           {
-            cheat[iy].cheat = strdup(p);
+            cheat[iy].cheat = Z_Strdup(p);
             deh_log("Assigned new cheat '%s' to cheat '%s'at index %d\n",
                     p, cheat[ix].deh_cheat, iy); // killough 4/18/98
           }
@@ -2876,7 +2810,7 @@ static void deh_procText(DEHFILE *fpin, char *line)
               i, sprnames[i], tolen, &inbuffer[fromlen]);
 
       // CPhipps - fix constness problem
-      sprnames[i] = s = strdup(sprnames[i]);
+      sprnames[i] = s = Z_Strdup(sprnames[i]);
       strncpy(s, &inbuffer[fromlen], tolen);
 
       found = TRUE;
@@ -2895,7 +2829,7 @@ static void deh_procText(DEHFILE *fpin, char *line)
       deh_log("Changing name of sfx from %s to %*s\n",
               S_sfx[i].name, usedlen, &inbuffer[fromlen]);
 
-      S_sfx[i].name = strdup(&inbuffer[fromlen]);
+      S_sfx[i].name = Z_Strdup(&inbuffer[fromlen]);
 
       found = TRUE;
     }
@@ -2907,7 +2841,7 @@ static void deh_procText(DEHFILE *fpin, char *line)
         deh_log("Changing name of music from %s to %*s\n",
                 S_music[i].name, usedlen, &inbuffer[fromlen]);
 
-        S_music[i].name = strdup(&inbuffer[fromlen]);
+        S_music[i].name = Z_Strdup(&inbuffer[fromlen]);
 
         found = TRUE;
       }
@@ -2920,13 +2854,13 @@ static void deh_procText(DEHFILE *fpin, char *line)
             inbuffer, (strlen(inbuffer) > 12) ? "..." : "", fromlen, tolen);
     if ((size_t)fromlen <= strlen(inbuffer))
     {
-      line2 = strdup(&inbuffer[fromlen]);
+      line2 = Z_Strdup(&inbuffer[fromlen]);
       inbuffer[fromlen] = '\0';
     }
 
     deh_procStringSub(NULL, inbuffer, line2);
   }
-  free(line2); // may be NULL, ignored by free()
+  Z_Free(line2); // may be NULL, ignored by free()
 }
 
 static void deh_procError(DEHFILE *fpin, char *line)
@@ -2958,7 +2892,7 @@ static void deh_procStrings(DEHFILE *fpin, char *line)
 
   deh_log("Processing extended string substitution\n");
 
-  if (!holdstring) holdstring = malloc(maxstrlen * sizeof(*holdstring));
+  if (!holdstring) holdstring = Z_Malloc(maxstrlen * sizeof(*holdstring));
 
   *holdstring = '\0';  // empty string to start with
   strncpy(inbuffer, line, DEH_BUFFERMAX - 1);
@@ -2984,7 +2918,7 @@ static void deh_procStrings(DEHFILE *fpin, char *line)
       maxstrlen = strlen(holdstring) + strlen(inbuffer);
       deh_log("* increased buffer from to %ld for buffer size %d\n",
               (long)maxstrlen, (int)strlen(inbuffer));
-      holdstring = realloc(holdstring, maxstrlen * sizeof(*holdstring));
+      holdstring = Z_Realloc(holdstring, maxstrlen * sizeof(*holdstring));
     }
     // concatenate the whole buffer if continuation or the value iffirst
     strcat(holdstring, ptr_lstrip(((*holdstring) ? inbuffer : strval)));
@@ -3039,7 +2973,7 @@ dboolean deh_procStringSub(char *key, char *lookfor, char *newstring)
     if (found)
     {
       char *t;
-      *deh_strlookup[i].ppstr = t = strdup(newstring); // orphan originalstring
+      *deh_strlookup[i].ppstr = t = Z_Strdup(newstring); // orphan originalstring
       found = true;
       // Handle embedded \n's in the incoming string, convert to 0x0a's
       {
@@ -3156,7 +3090,7 @@ static void deh_procBexSprites(DEHFILE *fpin, char *line)
     if (match >= 0)
     {
       deh_log("Substituting '%s' for sprite '%s'\n", candidate, key);
-      sprnames[match] = strdup(candidate);
+      sprnames[match] = Z_Strdup(candidate);
     }
   }
 }
@@ -3204,7 +3138,7 @@ static void deh_procBexSounds(DEHFILE *fpin, char *line)
     if (match >= 0)
     {
       deh_log("Substituting '%s' for sound '%s'\n", candidate, key);
-      S_sfx[match].name = strdup(candidate);
+      S_sfx[match].name = Z_Strdup(candidate);
     }
   }
 }
@@ -3252,7 +3186,7 @@ static void deh_procBexMusic(DEHFILE *fpin, char *line)
     if (match >= 0)
     {
       deh_log("Substituting '%s' for music '%s'\n", candidate, key);
-      S_music[match].name = strdup(candidate);
+      S_music[match].name = Z_Strdup(candidate);
     }
   }
 }

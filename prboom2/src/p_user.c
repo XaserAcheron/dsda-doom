@@ -33,6 +33,8 @@
  *
  *-----------------------------------------------------------------------------*/
 
+#include <math.h>
+
 #include "doomstat.h"
 #include "d_event.h"
 #include "r_main.h"
@@ -73,6 +75,16 @@ dboolean onground; // whether player is on ground or in air
 // heretic
 int newtorch;      // used in the torch flicker effect.
 int newtorchdelta;
+
+fixed_t P_PlayerSpeed(player_t* player)
+{
+  double vx, vy;
+
+  vx = (double) player->mo->momx / FRACUNIT;
+  vy = (double) player->mo->momy / FRACUNIT;
+
+  return (fixed_t) (sqrt(vx * vx + vy * vy) * FRACUNIT);
+}
 
 angle_t P_PlayerPitch(player_t* player)
 {
@@ -243,7 +255,7 @@ void P_CalcHeight (player_t* player)
     player->bob = FRACUNIT / 2;
   }
 
-  if ((!onground && !raven) || player->cheats & CF_NOMOMENTUM)
+  if (!onground && !raven)
   {
     player->viewz = player->mo->z + g_viewheight;
 
@@ -317,11 +329,11 @@ void P_SetPitch(player_t *player)
 
   if (player == &players[consoleplayer])
   {
-    if (!(demoplayback || democontinue))
+    if (!demoplayback)
     {
       if (dsda_MouseLook())
       {
-        if (!mo->reactiontime && (!(automapmode & am_active) || (automapmode & am_overlay)))
+        if (!mo->reactiontime && automap_off)
         {
           mo->pitch += (mlooky << 16);
           CheckPitch((signed int *)&mo->pitch);
@@ -331,13 +343,10 @@ void P_SetPitch(player_t *player)
       {
         mo->pitch = 0;
       }
-
-      R_DemoEx_WriteMLook(mo->pitch);
     }
     else
     {
-      mo->pitch = R_DemoEx_ReadMLook();
-      CheckPitch((signed int *)&mo->pitch);
+      mo->pitch = 0;
     }
   }
   else
@@ -584,8 +593,8 @@ void P_PlayerThink (player_t* player)
   if (movement_smooth)
   {
     player->prev_viewz = player->viewz;
-    player->prev_viewangle = R_SmoothPlaying_Get(player) + viewangleoffset;
-    player->prev_viewpitch = P_PlayerPitch(player) + viewpitchoffset;
+    player->prev_viewangle = R_SmoothPlaying_Get(player);
+    player->prev_viewpitch = P_PlayerPitch(player);
 
     if (&players[displayplayer] == player)
     {

@@ -20,14 +20,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "doomtype.h"
-#include "m_argv.h"
 #include "lprintf.h"
 #include "w_wad.h"
 #include "i_system.h"
 #include "z_zone.h"
 #include "e6y.h"
+
+#include "dsda/args.h"
 
 #include "data_organizer.h"
 
@@ -58,8 +60,8 @@ static void dsda_NormalizeSlashes(char *str)
       str[l] = '/';
 }
 
-char* dsda_DetectDirectory(const char* env_key, const char* param) {
-  int i;
+char* dsda_DetectDirectory(const char* env_key, int arg_id) {
+  dsda_arg_t* arg;
   struct stat sbuf;
   char* result = NULL;
   const char* default_directory;
@@ -69,17 +71,19 @@ char* dsda_DetectDirectory(const char* env_key, const char* param) {
   if (!default_directory)
     default_directory = I_DoomExeDir();
 
-  if ((i = M_CheckParm(param)) && i < myargc - 1) {
-    if (!stat(myargv[i + 1], &sbuf) && S_ISDIR(sbuf.st_mode)) {
-      if (result) free(result);
-      result = strdup(myargv[i + 1]);
+  arg = dsda_Arg(arg_id);
+  if (arg->found) {
+    if (!stat(arg->value.v_string, &sbuf) && S_ISDIR(sbuf.st_mode)) {
+      if (result) Z_Free(result);
+      result = Z_Strdup(arg->value.v_string);
     }
     else
-      lprintf(LO_ERROR, "Error: %s path does not exist; using %s\n", param, default_directory);
+      lprintf(LO_ERROR, "Error: path %s does not exist. Using %s\n",
+              arg->value.v_string, default_directory);
   }
 
   if (!result)
-    result = strdup(default_directory);
+    result = Z_Strdup(default_directory);
 
   dsda_NormalizeSlashes(result);
 
@@ -101,11 +105,11 @@ static void dsda_CreateDirectory(const char* path) {
 #endif
 
   if (error)
-    I_Error("dsda_CreateDirectory: unable to create directory %s (%d)", path, error);
+    I_Error("dsda_CreateDirectory: unable to create directory %s (%d)", path, errno);
 }
 
 void dsda_InitDataDir(void) {
-  dsda_base_data_dir = dsda_DetectDirectory("DOOMDATADIR", "-data");
+  dsda_base_data_dir = dsda_DetectDirectory("DOOMDATADIR", dsda_arg_data);
 }
 
 static void dsda_InitWadDataDir(void) {
@@ -115,7 +119,7 @@ static void dsda_InitWadDataDir(void) {
   int pwad_index = 2;
   struct stat sbuf;
 
-  dsda_data_dir_strings[0] = strdup(dsda_data_root);
+  dsda_data_dir_strings[0] = Z_Strdup(dsda_data_root);
 
   for (i = 0; i < numwadfiles; ++i) {
     const char* start;
@@ -136,7 +140,7 @@ static void dsda_InitWadDataDir(void) {
         dir_index = -1;
 
       if (dir_index >= 0 && dir_index < DATA_DIR_LIMIT) {
-        dsda_data_dir_strings[dir_index] = malloc(length + 1);
+        dsda_data_dir_strings[dir_index] = Z_Malloc(length + 1);
         strncpy(dsda_data_dir_strings[dir_index], start, length);
         dsda_data_dir_strings[dir_index][length] = '\0';
 
@@ -155,7 +159,7 @@ static void dsda_InitWadDataDir(void) {
       length += strlen(dsda_data_dir_strings[i]) + 1; // "/"
   }
 
-  dsda_wad_data_dir = calloc(length + 1, 1); // "\0"
+  dsda_wad_data_dir = Z_Calloc(length + 1, 1); // "\0"
 
   strcat(dsda_wad_data_dir, dsda_base_data_dir);
 

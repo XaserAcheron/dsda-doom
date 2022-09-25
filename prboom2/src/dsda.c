@@ -15,10 +15,10 @@
 //	DSDA Tools
 //
 
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "m_argv.h"
 #include "doomstat.h"
 #include "p_inter.h"
 #include "p_tick.h"
@@ -28,6 +28,10 @@
 #include "am_map.h"
 
 #include "dsda/analysis.h"
+#include "dsda/args.h"
+#include "dsda/build.h"
+#include "dsda/demo.h"
+#include "dsda/exhud.h"
 #include "dsda/ghost.h"
 #include "dsda/hud.h"
 #include "dsda/command_display.h"
@@ -35,6 +39,7 @@
 #include "dsda/mouse.h"
 #include "dsda/settings.h"
 #include "dsda/split_tracker.h"
+#include "dsda/tracker.h"
 #include "dsda.h"
 
 #define TELEFRAG_DAMAGE 10000
@@ -45,39 +50,135 @@ int dsda_track_100k;
 
 int dsda_last_leveltime;
 int dsda_last_gamemap;
+int dsda_startmap;
+int dsda_movie_target;
+dboolean dsda_any_map_completed;
 
 // other
-static char* dsda_demo_name_base;
 int dsda_max_kill_requirement;
 int dsda_session_attempts = 1;
+
+static int turbo_scale;
+static int start_in_build_mode;
+
+static int line_activation[2][LINE_ACTIVATION_INDEX_MAX + 1];
+static int line_activation_frame;
+static int line_activation_index;
+
+static int dsda_time_keys;
+static int dsda_time_use;
+static int dsda_time_secrets;
 
 dboolean dsda_IsWeapon(mobj_t* thing);
 void dsda_DisplayNotification(const char* msg);
 void dsda_ResetMapVariables(void);
 
-void dsda_ReadCommandLine(void) {
-  int p;
+dboolean dsda_ILComplete(void) {
+  return dsda_any_map_completed && dsda_last_gamemap == dsda_startmap && !dsda_movie_target;
+}
 
-  dsda_track_pacifist = M_CheckParm("-track_pacifist");
-  dsda_track_100k = M_CheckParm("-track_100k");
-  dsda_analysis = M_CheckParm("-analysis");
-  dsda_time_keys = M_CheckParm("-time_keys");
-  dsda_time_use = M_CheckParm("-time_use");
-  dsda_time_secrets = M_CheckParm("-time_secrets");
-  dsda_time_all = M_CheckParm("-time_all");
+dboolean dsda_MovieComplete(void) {
+  return dsda_any_map_completed && dsda_last_gamemap == dsda_movie_target && dsda_movie_target;
+}
+
+void dsda_WatchLineActivation(line_t* line, mobj_t* mo) {
+  if (mo && mo->player) {
+    if (line_activation_index < LINE_ACTIVATION_INDEX_MAX) {
+      line_activation[line_activation_frame][line_activation_index] = line->iLineID;
+      ++line_activation_index;
+      line_activation[line_activation_frame][line_activation_index] = -1;
+    }
+
+    ++line->player_activations;
+  }
+}
+
+int* dsda_PlayerActivatedLines(void) {
+  return line_activation[!line_activation_frame];
+}
+
+static void dsda_FlipLineActivationTracker(void) {
+  line_activation_frame = !line_activation_frame;
+  line_activation_index = 0;
+
+  line_activation[line_activation_frame][line_activation_index] = -1;
+}
+
+static void dsda_ResetLineActivationTracker(void) {
+  line_activation[0][0] = -1;
+  line_activation[1][0] = -1;
+}
+
+static void dsda_HandleTurbo(void) {
+  dsda_arg_t* arg;
+
+  arg = dsda_Arg(dsda_arg_turbo);
+
+  if (arg->found)
+    turbo_scale = arg->value.v_int;
+
+  if (turbo_scale > 100)
+    dsda_ToggleBuildTurbo();
+}
+
+int dsda_TurboScale(void) {
+  return turbo_scale;
+}
+
+static dboolean frozen_mode;
+
+dboolean dsda_FrozenMode(void) {
+  return frozen_mode;
+}
+
+void dsda_ToggleFrozenMode(void) {
+  if (demorecording || demoplayback)
+    return;
+
+  frozen_mode = !frozen_mode;
+}
+
+static void dsda_HandleBuild(void) {
+  start_in_build_mode = dsda_Flag(dsda_arg_build);
+}
+
+int dsda_StartInBuildMode(void) {
+  return start_in_build_mode;
+}
+
+void dsda_ReadCommandLine(void) {
+  dsda_arg_t* arg;
+  int dsda_time_all;
+
+  dsda_track_pacifist = dsda_Flag(dsda_arg_track_pacifist);
+  dsda_track_100k = dsda_Flag(dsda_arg_track_100k);
+  dsda_analysis = dsda_Flag(dsda_arg_analysis);
+  dsda_time_keys = dsda_SimpleIntArg(dsda_arg_time_keys);
+  dsda_time_use = dsda_SimpleIntArg(dsda_arg_time_use);
+  dsda_time_secrets = dsda_SimpleIntArg(dsda_arg_time_secrets);
+  dsda_time_all = dsda_SimpleIntArg(dsda_arg_time_all);
+
+  if ((arg = dsda_Arg(dsda_arg_movie))->found)
+    dsda_movie_target = arg->value.v_int;
 
   if (dsda_time_all) {
-    dsda_time_keys = true;
-    dsda_time_use = true;
-    dsda_time_secrets = true;
+    dsda_time_keys = dsda_time_all;
+    dsda_time_use = dsda_time_all;
+    dsda_time_secrets = dsda_time_all;
   }
 
-  if ((p = M_CheckParm("-export_ghost")) && ++p < myargc)
-    dsda_InitGhostExport(myargv[p]);
+  arg = dsda_Arg(dsda_arg_export_ghost);
+  if (arg->found)
+    dsda_InitGhostExport(arg->value.v_string);
 
-  if ((p = M_CheckParm("-import_ghost"))) dsda_InitGhostImport(p);
+  dsda_HandleTurbo();
+  dsda_HandleBuild();
 
-  if (M_CheckParm("-tas")) dsda_SetTas();
+  arg = dsda_Arg(dsda_arg_import_ghost);
+  if (arg->found)
+    dsda_InitGhostImport(arg->value.v_string_array, arg->count);
+
+  if (dsda_Flag(dsda_arg_tas) || dsda_Flag(dsda_arg_build)) dsda_SetTas();
 
   dsda_InitKeyFrame();
   dsda_InitCommandHistory();
@@ -103,6 +204,20 @@ void dsda_DisplayNotifications(void) {
   }
 }
 
+void dsda_DecomposeILTime(dsda_level_time_t* level_time) {
+  level_time->m = dsda_last_leveltime / 35 / 60;
+  level_time->s = (dsda_last_leveltime % (60 * 35)) / 35;
+  level_time->t = round(100.f * (dsda_last_leveltime % 35) / 35);
+}
+
+void dsda_DecomposeMovieTime(dsda_movie_time_t* total_time) {
+  extern int totalleveltimes;
+
+  total_time->h = totalleveltimes / 35 / 60 / 60;
+  total_time->m = (totalleveltimes % (60 * 60 * 35)) / 35 / 60;
+  total_time->s = (totalleveltimes % (60 * 35)) / 35;
+}
+
 void dsda_DisplayNotification(const char* msg) {
   S_StartSound(0, gamemode == commercial ? sfx_radio : sfx_itmbk);
   doom_printf("%s", msg);
@@ -113,26 +228,38 @@ void dsda_WatchCard(card_t card) {
     switch (card) {
       case it_bluecard:
       case it_blueskull:
-        dsda_AddSplit(DSDA_SPLIT_BLUE_KEY);
+        dsda_AddSplit(DSDA_SPLIT_BLUE_KEY, dsda_time_keys);
         break;
       case it_yellowcard:
       case it_yellowskull:
-        dsda_AddSplit(DSDA_SPLIT_YELLOW_KEY);
+        dsda_AddSplit(DSDA_SPLIT_YELLOW_KEY, dsda_time_keys);
         break;
       case it_redcard:
       case it_redskull:
-        dsda_AddSplit(DSDA_SPLIT_RED_KEY);
+        dsda_AddSplit(DSDA_SPLIT_RED_KEY, dsda_time_keys);
         break;
       default:
         break;
     }
 }
 
+static int player_damage_leveltime;
+int player_damage_last_tic;
+
 void dsda_WatchDamage(mobj_t* target, mobj_t* inflictor, mobj_t* source, int damage) {
   if (
     ((source && source->player) || (inflictor && inflictor->intflags & MIF_PLAYER_DAMAGED_BARREL)) \
     && damage != TELEFRAG_DAMAGE
   ) {
+    if (!target->player) {
+      if (leveltime != player_damage_leveltime) {
+        player_damage_leveltime = leveltime;
+        player_damage_last_tic = 0;
+      }
+
+      player_damage_last_tic += damage;
+    }
+
     if (target->type == MT_BARREL)
       target->intflags |= MIF_PLAYER_DAMAGED_BARREL;
     else if (!target->player)
@@ -242,6 +369,10 @@ int dsda_MaxKillRequirement() {
   return dsda_max_kill_requirement;
 }
 
+void dsda_WatchPTickCompleted(void) {
+  dsda_FlipLineActivationTracker();
+}
+
 void dsda_WatchCommand(void) {
   int i;
   ticcmd_t* cmd;
@@ -254,7 +385,7 @@ void dsda_WatchCommand(void) {
     player_class = &pclass[players[i].pclass];
 
     if (cmd->buttons & BT_USE && dsda_time_use)
-      dsda_AddSplit(DSDA_SPLIT_USE);
+      dsda_AddSplit(DSDA_SPLIT_USE, dsda_time_use);
 
     if (cmd->sidemove != 0 || abs(cmd->forwardmove) > player_class->stroller_threshold)
       dsda_stroller = false;
@@ -280,6 +411,8 @@ void dsda_WatchBeforeLevelSetup(void) {
 
 void dsda_WatchAfterLevelSetup(void) {
   dsda_SpawnGhost();
+  dsda_ResetTrackers();
+  dsda_ResetLineActivationTracker();
 }
 
 void dsda_WatchNewLevel(void) {
@@ -329,6 +462,7 @@ void dsda_WatchLevelCompletion(void) {
 
   dsda_last_leveltime = leveltime;
   dsda_last_gamemap = gamemap;
+  dsda_any_map_completed = true;
 
   dsda_RecordSplit();
 }
@@ -355,30 +489,8 @@ void dsda_WatchWeaponFire(weapontype_t weapon) {
 }
 
 void dsda_WatchSecret(void) {
-  if (dsda_time_secrets) dsda_AddSplit(DSDA_SPLIT_SECRET);
-}
-
-char* dsda_DemoNameBase(void) {
-  return dsda_demo_name_base;
-}
-
-// from crispy - incrementing demo file names
-char* dsda_NewDemoName(void) {
-  char* demo_name;
-  size_t demo_name_size;
-  FILE* fp = NULL;
-  static unsigned int j = 2;
-
-  demo_name_size = strlen(dsda_demo_name_base) + 11; // 11 = -12345.lmp\0
-  demo_name = malloc(demo_name_size);
-  snprintf(demo_name, demo_name_size, "%s.lmp", dsda_demo_name_base);
-
-  for (; j <= 99999 && (fp = fopen(demo_name, "rb")) != NULL; j++) {
-    snprintf(demo_name, demo_name_size, "%s-%05d.lmp", dsda_demo_name_base, j);
-    fclose (fp);
-  }
-
-  return demo_name;
+  if (dsda_time_secrets)
+    dsda_AddSplit(DSDA_SPLIT_SECRET, dsda_time_secrets);
 }
 
 static void dsda_ResetTracking(void) {
@@ -388,8 +500,6 @@ static void dsda_ResetTracking(void) {
 }
 
 void dsda_WatchDeferredInitNew(skill_t skill, int episode, int map) {
-  char* demo_name;
-
   if (!demorecording) return;
 
   ++dsda_session_attempts;
@@ -400,13 +510,13 @@ void dsda_WatchDeferredInitNew(skill_t skill, int episode, int map) {
   dsda_ResetRevealMap();
   G_CheckDemoStatus();
 
-  demo_name = dsda_NewDemoName();
+  dsda_last_gamemap = 0;
+  dsda_last_leveltime = 0;
+  dsda_any_map_completed = false;
 
-  G_RecordDemo(demo_name);
+  dsda_InitDemoRecording();
 
   basetic = gametic;
-
-  free(demo_name);
 }
 
 void dsda_WatchNewGame(void) {
@@ -416,27 +526,10 @@ void dsda_WatchNewGame(void) {
 }
 
 void dsda_WatchLevelReload(int* reloaded) {
+  extern int startmap;
+
   if (!demorecording || *reloaded) return;
 
   G_DeferedInitNew(gameskill, gameepisode, startmap);
   *reloaded = 1;
-}
-
-void dsda_WatchRecordDemo(const char* name) {
-  size_t base_size;
-
-  if (dsda_demo_name_base != NULL) {
-    dsda_InitSettings();
-    return;
-  }
-
-  base_size = strlen(name) - 3;
-  dsda_demo_name_base = malloc(base_size);
-  strncpy(dsda_demo_name_base, name, base_size);
-  dsda_demo_name_base[base_size - 1] = '\0';
-
-  // demorecording is set after prboom+ has already cached its settings
-  // we need to reset things here to satisfy strict mode
-  dsda_InitSettings();
-  dsda_InitKeyFrame();
 }

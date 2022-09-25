@@ -46,6 +46,8 @@
 #include "am_map.h"
 #include "lprintf.h"
 
+#include "dsda/stretch.h"
+
 //
 // All drawing to the view buffer is accomplished in this file.
 // The other refresh files only know about ccordinates,
@@ -92,8 +94,6 @@ static int    tempyl[4], tempyh[4];
 
 // e6y: resolution limitation is removed
 static byte           *tempbuf;
-static unsigned short *short_tempbuf;
-static unsigned int   *int_tempbuf;
 
 static int    startx = 0;
 static int    temptype = COL_NONE;
@@ -132,27 +132,21 @@ static int fuzzpos = 0;
 #define RDC_FUZZ          8
 // no color mapping
 #define RDC_NOCOLMAP     16
-// filter modes
-#define RDC_DITHERZ      32
-#define RDC_BILINEAR     64
-#define RDC_ROUNDED     128
 
 draw_vars_t drawvars = {
   NULL, // topleft
   0, // pitch
-  RDRAW_FILTER_POINT, // filterwall
-  RDRAW_FILTER_POINT, // filterfloor
-  RDRAW_FILTER_POINT, // filtersprite
-  RDRAW_FILTER_POINT, // filterz
-  RDRAW_FILTER_POINT, // filterpatch
-
-  RDRAW_MASKEDCOLUMNEDGE_SQUARE, // sprite_edges
-  RDRAW_MASKEDCOLUMNEDGE_SQUARE, // patch_edges
-
-  // 49152 = FRACUNIT * 0.75
-  // 81920 = FRACUNIT * 1.25
-  49152 // mag_threshold
 };
+
+dboolean R_FullView(void)
+{
+  return viewheight == SCREENHEIGHT;
+}
+
+dboolean R_PartialView(void)
+{
+  return viewheight != SCREENHEIGHT;
+}
 
 //
 // Error functions that will abort if R_FlushColumns tries to flush
@@ -319,61 +313,25 @@ byte *translationtables;
 #undef R_DRAWCOLUMN_PIPELINE_BASE
 #undef R_DRAWCOLUMN_PIPELINE_TYPE
 
-static R_DrawColumn_f drawcolumnfuncs[RDRAW_FILTER_MAXFILTERS][RDRAW_FILTER_MAXFILTERS][RDC_PIPELINE_MAXPIPELINES] = {
+static R_DrawColumn_f drawcolumnfuncs[RDRAW_FILTER_MAXFILTERS][RDC_PIPELINE_MAXPIPELINES] = {
   {
-    {NULL, NULL, NULL, NULL,},
-    {R_DrawColumn_PointUV,
-     R_DrawTLColumn_PointUV,
-     R_DrawTranslatedColumn_PointUV,
-     R_DrawFuzzColumn_PointUV,},
-    {R_DrawColumn_LinearUV,
-     R_DrawTLColumn_LinearUV,
-     R_DrawTranslatedColumn_LinearUV,
-     R_DrawFuzzColumn_LinearUV,},
-    {R_DrawColumn_RoundedUV,
-     R_DrawTLColumn_RoundedUV,
-     R_DrawTranslatedColumn_RoundedUV,
-     R_DrawFuzzColumn_RoundedUV,},
+    R_DrawColumn_PointUV,
+    R_DrawTLColumn_PointUV,
+    R_DrawTranslatedColumn_PointUV,
+    R_DrawFuzzColumn_PointUV,
   },
   {
-    {NULL, NULL, NULL, NULL,},
-    {R_DrawColumn_PointUV_PointZ,
-     R_DrawTLColumn_PointUV_PointZ,
-     R_DrawTranslatedColumn_PointUV_PointZ,
-     R_DrawFuzzColumn_PointUV_PointZ,},
-    {R_DrawColumn_LinearUV_PointZ,
-     R_DrawTLColumn_LinearUV_PointZ,
-     R_DrawTranslatedColumn_LinearUV_PointZ,
-     R_DrawFuzzColumn_LinearUV_PointZ,},
-    {R_DrawColumn_RoundedUV_PointZ,
-     R_DrawTLColumn_RoundedUV_PointZ,
-     R_DrawTranslatedColumn_RoundedUV_PointZ,
-     R_DrawFuzzColumn_RoundedUV_PointZ,},
-  },
-  {
-    {NULL, NULL, NULL, NULL,},
-    {R_DrawColumn_PointUV_LinearZ,
-     R_DrawTLColumn_PointUV_LinearZ,
-     R_DrawTranslatedColumn_PointUV_LinearZ,
-     R_DrawFuzzColumn_PointUV_LinearZ,},
-    {R_DrawColumn_LinearUV_LinearZ,
-     R_DrawTLColumn_LinearUV_LinearZ,
-     R_DrawTranslatedColumn_LinearUV_LinearZ,
-     R_DrawFuzzColumn_LinearUV_LinearZ,},
-    {R_DrawColumn_RoundedUV_LinearZ,
-     R_DrawTLColumn_RoundedUV_LinearZ,
-     R_DrawTranslatedColumn_RoundedUV_LinearZ,
-     R_DrawFuzzColumn_RoundedUV_LinearZ,},
+    R_DrawColumn_PointUV_PointZ,
+    R_DrawTLColumn_PointUV_PointZ,
+    R_DrawTranslatedColumn_PointUV_PointZ,
+    R_DrawFuzzColumn_PointUV_PointZ,
   },
 };
 
-R_DrawColumn_f R_GetDrawColumnFunc(enum column_pipeline_e type,
-                                   enum draw_filter_type_e filter,
-                                   enum draw_filter_type_e filterz) {
-  R_DrawColumn_f result = drawcolumnfuncs[filterz][filter][type];
+R_DrawColumn_f R_GetDrawColumnFunc(enum column_pipeline_e type, enum draw_filter_type_e filterz) {
+  R_DrawColumn_f result = drawcolumnfuncs[filterz][type];
   if (result == NULL)
-    I_Error("R_GetDrawColumnFunc: undefined function (%d, %d, %d)",
-            type, filter, filterz);
+    I_Error("R_GetDrawColumnFunc: undefined function (%d, %d)", type, filterz);
   return result;
 }
 
@@ -384,7 +342,6 @@ void R_SetDefaultDrawColumnVars(draw_column_vars_t *dcvars) {
   dcvars->colormap = dcvars->nextcolormap = colormaps[0];
   dcvars->translation = NULL;
   dcvars->edgeslope = dcvars->drawingmasked = 0;
-  dcvars->edgetype = drawvars.sprite_edges;
   dcvars->flags = 0;
 
   // heretic
@@ -410,16 +367,15 @@ void R_InitTranslationTables (void)
   if (hexen)
   {
     int lumpnum = W_GetNumForName("trantbl0");
-    translationtables = Z_Malloc(256 * 3 * (g_maxplayers - 1), PU_STATIC, 0);
+    translationtables = Z_Malloc(256 * 3 * (g_maxplayers - 1));
 
     for (i = 0; i < g_maxplayers; i++)
       playernumtotrans[i] = i;
 
     for (i = 0; i < 3 * (g_maxplayers - 1); i++)
     {
-        const byte* transLump = W_CacheLumpNum(lumpnum + i);
+        const byte* transLump = W_LumpByNum(lumpnum + i);
         memcpy(translationtables + i * 256, transLump, 256);
-        W_UnlockLumpNum(lumpnum + i);
     }
 
     return;
@@ -429,7 +385,7 @@ void R_InitTranslationTables (void)
   // Remove dependency of colormaps aligned on 256-byte boundary
 
   if (translationtables == NULL) // CPhipps - allow multiple calls
-    translationtables = Z_Malloc(256*MAXTRANS, PU_STATIC, 0);
+    translationtables = Z_Malloc(256*MAXTRANS);
 
   for (i=0; i<MAXTRANS; i++) transtocolour[i] = 255;
 
@@ -448,9 +404,9 @@ void R_InitTranslationTables (void)
     if (i >= 0x70 && i<= 0x7f)
     {
       // CPhipps - configurable player colours
-      translationtables[i] = colormaps[0][((i&0xf)<<9) + transtocolour[0]];
-      translationtables[i+256] = colormaps[0][((i&0xf)<<9) + transtocolour[1]];
-      translationtables[i+512] = colormaps[0][((i&0xf)<<9) + transtocolour[2]];
+      translationtables[i] = colormaps[0][(i&0xf) + transtocolour[0]];
+      translationtables[i+256] = colormaps[0][(i&0xf) + transtocolour[1]];
+      translationtables[i+512] = colormaps[0][(i&0xf) + transtocolour[2]];
     }
     else  // Keep all other colors as is.
       translationtables[i]=translationtables[i+256]=translationtables[i+512]=i;
@@ -469,83 +425,36 @@ void R_InitTranslationTables (void)
 //  and the inner loop has to step in texture space u and v.
 //
 
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_PointUV_PointZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD)
-#include "r_drawspan.inl"
-
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_PointUV_LinearZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD | RDC_DITHERZ)
-#include "r_drawspan.inl"
-
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_LinearUV_PointZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD | RDC_BILINEAR)
-#include "r_drawspan.inl"
-
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_LinearUV_LinearZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD | RDC_BILINEAR | RDC_DITHERZ)
-#include "r_drawspan.inl"
-
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_RoundedUV_PointZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD | RDC_ROUNDED)
-#include "r_drawspan.inl"
-
-#define R_DRAWSPAN_FUNCNAME R_DrawSpan_RoundedUV_LinearZ
-#define R_DRAWSPAN_PIPELINE (RDC_STANDARD | RDC_ROUNDED | RDC_DITHERZ)
-#include "r_drawspan.inl"
-
-static R_DrawSpan_f drawspanfuncs[RDRAW_FILTER_MAXFILTERS][RDRAW_FILTER_MAXFILTERS] = {
-  {
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-  },
-  {
-    NULL,
-    R_DrawSpan_PointUV_PointZ,
-    R_DrawSpan_LinearUV_PointZ,
-    R_DrawSpan_RoundedUV_PointZ,
-  },
-  {
-    NULL,
-    R_DrawSpan_PointUV_LinearZ,
-    R_DrawSpan_LinearUV_LinearZ,
-    R_DrawSpan_RoundedUV_LinearZ,
-  },
-  {
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-  },
-};
-
-R_DrawSpan_f R_GetDrawSpanFunc(enum draw_filter_type_e filter,
-                               enum draw_filter_type_e filterz) {
-  R_DrawSpan_f result = drawspanfuncs[filterz][filter];
-  if (result == NULL)
-    I_Error("R_GetDrawSpanFunc: undefined function (%d, %d)",
-            filter, filterz);
-  return result;
-}
-
 void R_DrawSpan(draw_span_vars_t *dsvars) {
-  R_GetDrawSpanFunc(drawvars.filterfloor, drawvars.filterz)(dsvars);
+  unsigned count = dsvars->x2 - dsvars->x1 + 1;
+  fixed_t xfrac = dsvars->xfrac;
+  fixed_t yfrac = dsvars->yfrac;
+  const fixed_t xstep = dsvars->xstep;
+  const fixed_t ystep = dsvars->ystep;
+  const byte *source = dsvars->source;
+  const byte *colormap = dsvars->colormap;
+  byte *dest = drawvars.topleft + dsvars->y*drawvars.pitch + dsvars->x1;
+
+  while (count) {
+    const fixed_t xtemp = (xfrac >> 16) & 63;
+    const fixed_t ytemp = (yfrac >> 10) & 4032;
+    const fixed_t spot = xtemp | ytemp;
+    xfrac += xstep;
+    yfrac += ystep;
+    *dest++ = colormap[source[spot]];
+    count--;
+  }
 }
 
 void R_InitBuffersRes(void)
 {
   extern byte *solidcol;
 
-  if (solidcol) free(solidcol);
-  if (tempbuf) free(tempbuf);
-  if (short_tempbuf) free(short_tempbuf);
-  if (int_tempbuf) free(int_tempbuf);
+  if (solidcol) Z_Free(solidcol);
+  if (tempbuf) Z_Free(tempbuf);
 
-  solidcol = calloc(1, SCREENWIDTH * sizeof(*solidcol));
-  tempbuf = calloc(1, (SCREENHEIGHT * 4) * sizeof(*tempbuf));
-  short_tempbuf = calloc(1, (SCREENHEIGHT * 4) * sizeof(*short_tempbuf));
-  int_tempbuf = calloc(1, (SCREENHEIGHT * 4) * sizeof(*int_tempbuf));
+  solidcol = Z_Calloc(1, SCREENWIDTH * sizeof(*solidcol));
+  tempbuf = Z_Calloc(1, (SCREENHEIGHT * 4) * sizeof(*tempbuf));
 }
 
 //
@@ -586,7 +495,7 @@ void R_InitBuffer(int width, int height)
 
 void R_FillBackScreen (void)
 {
-  int automap = ((automapmode & am_active) && !(automapmode & am_overlay));
+  int automap = automap_on;
 
   if (grnrock.lumpnum == 0)
     return;
@@ -594,16 +503,16 @@ void R_FillBackScreen (void)
   // e6y: wide-res
   if (ratio_multiplier != ratio_scale || wide_offsety)
   {
-    extern int screenblocks;
     int only_stbar;
+    int screenblocks;
 
-#ifdef GL_DOOM
+    screenblocks = R_ViewSize();
+
     if (V_IsOpenGLMode())
     {
       only_stbar = (automap ? screenblocks >= 10 : screenblocks == 10);
     }
     else
-#endif
     {
       only_stbar = screenblocks >= 10;
     }
@@ -697,8 +606,7 @@ void R_DrawViewBorder(void)
 
   // e6y: wide-res
   if ((ratio_multiplier != ratio_scale || wide_offsety) &&
-     ((SCREENHEIGHT != viewheight) ||
-     ((automapmode & am_active) && ! (automapmode & am_overlay))))
+     (R_PartialView() || automap_on))
   {
     for (i = (SCREENHEIGHT - ST_SCALED_HEIGHT); i < SCREENHEIGHT; i++)
     {
